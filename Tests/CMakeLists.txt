@@ -8,7 +8,8 @@ target_include_directories(unity PUBLIC unity)
 
 # Include dirs for portable App code under test.
 set(APP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../App/include
-                ${CMAKE_CURRENT_SOURCE_DIR}/../App/services)
+                ${CMAKE_CURRENT_SOURCE_DIR}/../App/services
+                ${CMAKE_CURRENT_SOURCE_DIR}/fakes)
 
 # Helper to register a test executable.
 function(add_unity_test name)
@@ -24,3 +25,4 @@ add_unity_test(test_types test_types.c)
 add_unity_test(test_modbus_crc test_modbus_crc.c ../App/services/modbus_crc.c)
 add_unity_test(test_modbus_frame test_modbus_frame.c ../App/services/modbus_frame.c ../App/services/modbus_crc.c)
 add_unity_test(test_modbus_read test_modbus_read.c ../App/services/modbus_read.c ../App/services/modbus_crc.c)
+add_unity_test(test_fake_nor test_fake_nor.c fakes/fake_nor.c)
