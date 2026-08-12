@@ -21,3 +21,4 @@ endfunction()
 
 add_unity_test(test_smoke test_smoke.c)
 add_unity_test(test_types test_types.c)
+add_unity_test(test_modbus_crc test_modbus_crc.c ../App/services/modbus_crc.c)
