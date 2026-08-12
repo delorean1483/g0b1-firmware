@@ -9,6 +9,11 @@ static bool mock_reader(uint16_t reg, uint16_t *out) {
     if (reg == 2) { *out = 0xABCD; return true; }
     return false;
 }
+/* Reader that accepts all registers; returns register value as-is. */
+static bool always_ok_reader(uint16_t reg, uint16_t *out) {
+    *out = reg;
+    return true;
+}
 static void test_reads_two_registers(void) {
     uint8_t r[16];
     uint16_t n = mb_build_read_holding(0x01, 1, 2, mock_reader, r);
@@ -46,4 +51,13 @@ static void test_count_zero_exception(void) {
     TEST_ASSERT_EQUAL_HEX8(0x03, r[2]);       /* illegal data value */
     TEST_ASSERT_EQUAL_HEX16(0x0000, modbus_crc16(r, n));
 }
-int main(void){ UNITY_BEGIN(); RUN_TEST(test_reads_two_registers); RUN_TEST(test_illegal_address_exception); RUN_TEST(test_count_over_max_exception); RUN_TEST(test_count_zero_exception); return UNITY_END(); }
+static void test_count_max_boundary(void) {
+    uint8_t r[255];
+    uint16_t n = mb_build_read_holding(0x01, 1, 125, always_ok_reader, r);
+    TEST_ASSERT_EQUAL_UINT16(255, n);          /* 3 hdr + 250 data + 2 crc */
+    TEST_ASSERT_EQUAL_HEX8(0x01, r[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x03, r[1]);        /* normal read response, not exception */
+    TEST_ASSERT_EQUAL_UINT8(250, r[2]);        /* byte_count = 2*125 */
+    TEST_ASSERT_EQUAL_HEX16(0x0000, modbus_crc16(r, n)); /* valid trailing CRC */
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_reads_two_registers); RUN_TEST(test_illegal_address_exception); RUN_TEST(test_count_over_max_exception); RUN_TEST(test_count_zero_exception); RUN_TEST(test_count_max_boundary); return UNITY_END(); }
