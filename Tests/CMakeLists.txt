@@ -20,3 +20,4 @@ function(add_unity_test name)
 endfunction()
 
 add_unity_test(test_smoke test_smoke.c)
+add_unity_test(test_types test_types.c)
