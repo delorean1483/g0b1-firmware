@@ -22,6 +22,13 @@ void nvm_init(const nvm_backend_t *be) {
     s_slots_per_sector = be->sector_size / NVM_RECORD_SIZE;
     s_slots_total      = be->sector_count * s_slots_per_sector;
 
+    /* Guard against div-by-zero and enforce >=2-sector invariant. */
+    if (s_slots_per_sector == 0u || be->sector_count < 2u) {
+        nvm_apply_factory_defaults(s_shadow);
+        s_seq = 0u; s_next_slot = 0u; s_dirty = false;   /* RAM-only: commit() becomes a no-op */
+        return;
+    }
+
     uint32_t best_seq = 0, tmp_seq;
     bool found = false;
     uint32_t best_slot = 0;

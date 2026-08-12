@@ -27,6 +27,7 @@ static void test_defaults(void) {
     TEST_ASSERT_EQUAL_HEX8(0x01,   sh[EE_CLND_START_MONTH]);
     TEST_ASSERT_EQUAL_HEX8(0x10,   sh[EE_CLND_START_DATE]);
     TEST_ASSERT_EQUAL_HEX8(0x09,   sh[EE_CLND_START_HOUR]);
+    TEST_ASSERT_EQUAL_HEX8(0x00,   sh[EE_CLND_START_MIN]);
     TEST_ASSERT_EQUAL_HEX8(0,      sh[EE_CLND_START_AMPM]);
     TEST_ASSERT_EQUAL_HEX8(0,      sh[EE_BOOTLOADER_FLAG]);
     TEST_ASSERT_EQUAL_HEX8(0,      sh[100]);               /* unused byte zeroed */

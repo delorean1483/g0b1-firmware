@@ -28,5 +28,5 @@ void nvm_apply_factory_defaults(uint8_t *shadow) {
     shadow[EE_CLND_START_MIN]   = 0x00u;
     shadow[EE_CLND_START_AMPM]  = 0u;
     shadow[EE_BOOTLOADER_FLAG]  = 0u;
-    shadow[EEPROM_WRITTEN_FLAG] = EE_SENTINEL_VALUE;  /* 0x55, written last */
+    shadow[EEPROM_WRITTEN_FLAG] = EE_SENTINEL_VALUE;  /* vestigial: init is gated by journal validity now; kept for map compatibility */
 }

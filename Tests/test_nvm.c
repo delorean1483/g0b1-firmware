@@ -49,6 +49,13 @@ static void test_torn_last_record_recovers_previous(void) {
     nvm_init(&be);                                              /* slot3 invalid → falls back to slot2 (61) */
     TEST_ASSERT_EQUAL_UINT16(61u, nvm_read_word(EE_CLIMATE_TEMP_SETTING));
 }
+static void test_degenerate_backend_is_safe(void) {
+    fake_nor_init(&be);
+    be.sector_count = 1u;                 /* violates the >=2-sector invariant */
+    nvm_init(&be);                         /* must not crash / divide by zero */
+    TEST_ASSERT_EQUAL_UINT16(250u, nvm_read_word(EE_VREF_CALIBRATION)); /* defaults available */
+    TEST_ASSERT_EQUAL_INT(0, nvm_commit()); /* no-op, clean */
+}
 int main(void){
     UNITY_BEGIN();
     RUN_TEST(test_blank_device_factory_inits);
@@ -56,5 +63,6 @@ int main(void){
     RUN_TEST(test_no_write_no_dirty);
     RUN_TEST(test_ring_rollover);
     RUN_TEST(test_torn_last_record_recovers_previous);
+    RUN_TEST(test_degenerate_backend_is_safe);
     return UNITY_END();
 }
