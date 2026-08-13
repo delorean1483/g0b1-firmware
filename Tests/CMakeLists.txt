@@ -47,3 +47,4 @@ add_unity_test(test_mb_engine_misc test_mb_engine_misc.c ../App/services/mb_engi
 add_unity_test(test_mb_engine_diag test_mb_engine_diag.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_crc.c)
 add_unity_test(test_mb_engine_flow test_mb_engine_flow.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_crc.c)
 add_unity_test(test_mbp_sensors test_mbp_sensors.c ../App/services/mbp_sensors.c ../App/services/mb_regmodel.c ../App/services/sensors.c ../App/services/rpm.c)
+add_unity_test(test_mbp_rtc test_mbp_rtc.c ../App/services/mbp_rtc.c ../App/services/mb_regmodel.c ../App/services/rtc.c ../App/services/rtc_calendar.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_i2c.c fakes/fake_nor.c)
