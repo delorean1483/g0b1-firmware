@@ -30,8 +30,12 @@ static uint16_t finalize(uint8_t *resp, uint16_t len) {
 }
 
 /* FC 0x03 / 0x04: read `count` regs starting at 1-based (start+1). */
-static uint16_t handle_read(const uint8_t *req, uint8_t *resp) {
+static uint16_t handle_read(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
     uint8_t  fc    = req[MB_F_FUNCTION];
+
+    if (req_len < MB_HEADER_SIZE + 2u)
+        return finalize(resp, make_exception(resp, fc, MB_EXC_ILLEGAL_VALUE));
+
     uint16_t start = (uint16_t)(req[MB_F_START_HI] << 8) | req[MB_F_START_LO];
     uint16_t count = (uint16_t)(req[MB_F_QTY_HI] << 8) | req[MB_F_QTY_LO];
 
@@ -54,11 +58,10 @@ static uint16_t handle_read(const uint8_t *req, uint8_t *resp) {
 
 /* Returns response length (pre-CRC handlers call finalize themselves), or 0 for no response. */
 static uint16_t dispatch_fc(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
-    (void)req_len;
     switch (req[MB_F_FUNCTION]) {
         case MB_FC_READ_HOLDING:
         case MB_FC_READ_INPUT:
-            return handle_read(req, resp);
+            return handle_read(req, req_len, resp);
         default:
             return finalize(resp, make_exception(resp, req[MB_F_FUNCTION], MB_EXC_ILLEGAL_FUNCTION));
     }

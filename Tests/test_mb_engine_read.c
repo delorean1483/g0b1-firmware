@@ -97,6 +97,16 @@ static void test_wrong_address_no_response(void) {
     TEST_ASSERT_EQUAL_UINT16(0, rl);
 }
 
+static void test_short_read_frame_illegal_value(void) {
+    uint8_t req[8] = { MB_SLAVE_ADDR, MB_FC_READ_HOLDING, 0x00, 0x00 };
+    uint16_t crc = modbus_crc16(req, 4);
+    req[4] = (uint8_t)crc; req[5] = (uint8_t)(crc >> 8);
+    uint8_t resp[MB_MAX_FRAME]; uint16_t rl = 0;
+    mb_engine_process(req, 6, resp, &rl);          /* 6-byte frame, valid CRC over first 4 */
+    TEST_ASSERT_EQUAL_UINT8(MB_FC_READ_HOLDING | MB_ERROR_RESPONSE, resp[1]);
+    TEST_ASSERT_EQUAL_UINT8(MB_EXC_ILLEGAL_VALUE, resp[2]);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_read_holding_two_regs);
@@ -106,5 +116,6 @@ int main(void) {
     RUN_TEST(test_range_over_limit_illegal_address);
     RUN_TEST(test_bad_crc_no_response);
     RUN_TEST(test_wrong_address_no_response);
+    RUN_TEST(test_short_read_frame_illegal_value);
     return UNITY_END();
 }
