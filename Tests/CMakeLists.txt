@@ -35,3 +35,4 @@ add_unity_test(test_sensors_encl_temp test_sensors_encl_temp.c ../App/services/s
 add_unity_test(test_sensors_shadow test_sensors_shadow.c ../App/services/sensors.c)
 add_unity_test(test_rpm test_rpm.c ../App/services/rpm.c)
 add_unity_test(test_fake_i2c test_fake_i2c.c fakes/fake_i2c.c)
+add_unity_test(test_rtc_bcd test_rtc_bcd.c ../App/services/rtc.c)
