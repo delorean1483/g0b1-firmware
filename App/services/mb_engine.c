@@ -56,12 +56,53 @@ static uint16_t handle_read(const uint8_t *req, uint16_t req_len, uint8_t *resp)
     return finalize(resp, idx);
 }
 
+/* FC 0x06: write single register at 1-based (start+1) from value bytes [4][5]. */
+static uint16_t handle_write_single(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
+    if (req_len < MB_HEADER_SIZE + 2u)
+        return finalize(resp, make_exception(resp, MB_FC_WRITE_SINGLE, MB_EXC_ILLEGAL_VALUE));
+
+    uint16_t start = (uint16_t)(req[MB_F_START_HI] << 8) | req[MB_F_START_LO];
+    uint16_t val   = (uint16_t)(req[MB_F_QTY_HI] << 8) | req[MB_F_QTY_LO]; /* value in bytes 4,5 */
+    modbus_exc_t exc = mb_reg_write((uint16_t)(start + 1u), val);
+    if (exc != MB_EXC_NONE) return finalize(resp, make_exception(resp, MB_FC_WRITE_SINGLE, exc));
+    for (uint16_t i = 0; i < MB_HEADER_SIZE; i++) resp[i] = req[i];   /* echo request */
+    return finalize(resp, MB_HEADER_SIZE);
+}
+
+/* FC 0x10: write multiple registers starting at 1-based (start+1). */
+static uint16_t handle_write_multiple(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
+    uint16_t start = (uint16_t)(req[MB_F_START_HI] << 8) | req[MB_F_START_LO];
+    uint16_t count = (uint16_t)(req[MB_F_QTY_HI] << 8) | req[MB_F_QTY_LO];
+    if (count < 1u || count > 0x7Du) return finalize(resp, make_exception(resp, MB_FC_WRITE_MULTIPLE, MB_EXC_ILLEGAL_VALUE));
+    if ((uint32_t)start + count > MB_REG_LIMIT) return finalize(resp, make_exception(resp, MB_FC_WRITE_MULTIPLE, MB_EXC_ILLEGAL_ADDRESS));
+
+    if ((uint32_t)req_len < (uint32_t)(MB_HEADER_SIZE + 1u) + 2u * count + 2u)
+        return finalize(resp, make_exception(resp, MB_FC_WRITE_MULTIPLE, MB_EXC_ILLEGAL_VALUE));
+
+    uint16_t ndx = MB_HEADER_SIZE + 1u;    /* skip byte-count at [6]; values start at [7] */
+    for (uint16_t i = 0; i < count; i++) {
+        uint16_t val = (uint16_t)(req[ndx] << 8) | req[ndx + 1u];
+        ndx += 2u;
+        modbus_exc_t exc = mb_reg_write((uint16_t)(start + i + 1u), val);
+        if (exc != MB_EXC_NONE) return finalize(resp, make_exception(resp, MB_FC_WRITE_MULTIPLE, exc));
+    }
+    resp[MB_F_ADDR] = MB_SLAVE_ADDR;
+    resp[MB_F_FUNCTION] = MB_FC_WRITE_MULTIPLE;
+    resp[MB_F_START_HI] = req[MB_F_START_HI]; resp[MB_F_START_LO] = req[MB_F_START_LO];
+    resp[MB_F_QTY_HI]   = req[MB_F_QTY_HI];   resp[MB_F_QTY_LO]   = req[MB_F_QTY_LO];
+    return finalize(resp, MB_HEADER_SIZE);
+}
+
 /* Returns response length (pre-CRC handlers call finalize themselves), or 0 for no response. */
 static uint16_t dispatch_fc(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
     switch (req[MB_F_FUNCTION]) {
         case MB_FC_READ_HOLDING:
         case MB_FC_READ_INPUT:
             return handle_read(req, req_len, resp);
+        case MB_FC_WRITE_SINGLE:
+            return handle_write_single(req, req_len, resp);
+        case MB_FC_WRITE_MULTIPLE:
+            return handle_write_multiple(req, req_len, resp);
         default:
             return finalize(resp, make_exception(resp, req[MB_F_FUNCTION], MB_EXC_ILLEGAL_FUNCTION));
     }
