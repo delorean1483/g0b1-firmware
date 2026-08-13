@@ -43,11 +43,26 @@ static void test_sensors_are_read_only(void) {
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_write(6, 1234)); /* no write_fn */
 }
 
+static void test_encl_reg1_negative_twos_complement(void) {
+    for (int i = 0; i < SENS_AVG_ENCL; i++) sensors_add_sample(SENS_ENCL, 1665); /* -> -40 degF */
+    uint16_t o = 0;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(1, &o));
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)(int16_t)(-40), o);   /* 0xFFD8 */
+}
+
+static void test_all_sensor_regs_reject_writes(void) {
+    uint16_t regs[] = { 1, 3, 6, 38, 51 };
+    for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++)
+        TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_write(regs[i], 123));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_battery_reg6);
     RUN_TEST(test_ext_adc_reg3_and_temp_reg51);
     RUN_TEST(test_rpm_reg38);
     RUN_TEST(test_sensors_are_read_only);
+    RUN_TEST(test_encl_reg1_negative_twos_complement);
+    RUN_TEST(test_all_sensor_regs_reject_writes);
     return UNITY_END();
 }
