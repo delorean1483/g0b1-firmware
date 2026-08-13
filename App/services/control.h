@@ -53,5 +53,6 @@ typedef void (*control_mode_fn)(apu_ctx_t *ctx);
 void control_init(apu_ctx_t *ctx);
 void control_register_mode(control_op_state_t st, control_mode_fn fn);
 void control_tick(apu_ctx_t *ctx);   /* apply mode-request transition, then dispatch */
+void outputs_apply(const apu_ctx_t *ctx);
 
 #endif /* CONTROL_H */
