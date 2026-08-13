@@ -63,4 +63,10 @@ static const int32_t encl_tmp6131_table[ENCL_TABLE_LEN][2] = {
 };
 #endif
 
+/* Averaging (preserve PIC: enclosure 8-sample; others N-sample).
+ * Per-channel N for non-enclosure channels is a carry-forward to confirm
+ * against the original analog_data[].readings_to_average init. */
+#define SENS_AVG_ENCL      8
+#define SENS_AVG_DEFAULT   8
+
 #endif /* SENSORS_CAL_H */
