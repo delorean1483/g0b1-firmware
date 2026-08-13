@@ -55,5 +55,6 @@ void control_register_mode(control_op_state_t st, control_mode_fn fn);
 void control_tick(apu_ctx_t *ctx);   /* apply mode-request transition, then dispatch */
 void outputs_apply(const apu_ctx_t *ctx);
 void control_powerup_mode(apu_ctx_t *ctx);   /* register for OP_POWER_UP */
+void control_off_mode(apu_ctx_t *ctx);   /* register for OP_OFF */
 
 #endif /* CONTROL_H */
