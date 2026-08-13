@@ -3,6 +3,7 @@
 #include "types.h"
 
 #define DEBOUNCE_TIME 10u   /* consecutive 10 ms-slot samples => 100 ms */
+/* NOTE: 100 ms assumes one service() call per 10 ms slot; wall-time stretches under scheduler jitter. */
 #define SWITCH_OPEN   0u
 #define SWITCH_CLOSED 1u
 

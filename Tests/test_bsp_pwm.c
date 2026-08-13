@@ -30,11 +30,24 @@ static void test_fan_speed_applied_to_pwm(void) {
     TEST_ASSERT_EQUAL_UINT16(318, bsp_pwm_get(PWM_EVAP_FAN));
 }
 
+static void test_pwm_null_backend_is_safe(void) {
+    bsp_pwm_init(0);                                  /* no backend wired */
+    bsp_pwm_set(PWM_EVAP_FAN, 500);                   /* must not crash */
+    TEST_ASSERT_EQUAL_UINT16(0, bsp_pwm_get(PWM_EVAP_FAN));  /* returns 0, no deref */
+}
+
+static void test_pwm_out_of_range_channel_is_safe(void) {
+    bsp_pwm_set((bsp_pwm_ch_t)PWM_COUNT, 500);        /* index == PWM_COUNT: fake must reject */
+    TEST_ASSERT_EQUAL_UINT16(0, bsp_pwm_get((bsp_pwm_ch_t)PWM_COUNT));  /* no OOB read */
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_pwm_set_get_roundtrip);
     RUN_TEST(test_pwm_clamps_over_max);
     RUN_TEST(test_fan_speed_duty_ratios);
     RUN_TEST(test_fan_speed_applied_to_pwm);
+    RUN_TEST(test_pwm_null_backend_is_safe);
+    RUN_TEST(test_pwm_out_of_range_channel_is_safe);
     return UNITY_END();
 }
