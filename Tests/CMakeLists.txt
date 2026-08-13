@@ -33,3 +33,4 @@ add_unity_test(test_sensors_battery test_sensors_battery.c ../App/services/senso
 add_unity_test(test_sensors_ext_temp test_sensors_ext_temp.c ../App/services/sensors.c)
 add_unity_test(test_sensors_encl_temp test_sensors_encl_temp.c ../App/services/sensors.c)
 add_unity_test(test_sensors_shadow test_sensors_shadow.c ../App/services/sensors.c)
+add_unity_test(test_rpm test_rpm.c ../App/services/rpm.c)

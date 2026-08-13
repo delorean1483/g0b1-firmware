@@ -69,4 +69,7 @@ static const int32_t encl_tmp6131_table[ENCL_TABLE_LEN][2] = {
 #define SENS_AVG_ENCL      8
 #define SENS_AVG_DEFAULT   8
 
+/* Engine-running threshold (PIC main.h ENGINE_RPM_LOW_LIMIT). */
+#define ENGINE_RPM_LOW_LIMIT  1000
+
 #endif /* SENSORS_CAL_H */
