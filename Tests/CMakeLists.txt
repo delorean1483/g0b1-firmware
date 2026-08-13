@@ -46,3 +46,4 @@ add_unity_test(test_mb_engine_write test_mb_engine_write.c ../App/services/mb_en
 add_unity_test(test_mb_engine_misc test_mb_engine_misc.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_crc.c)
 add_unity_test(test_mb_engine_diag test_mb_engine_diag.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_crc.c)
 add_unity_test(test_mb_engine_flow test_mb_engine_flow.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_crc.c)
+add_unity_test(test_mbp_sensors test_mbp_sensors.c ../App/services/mbp_sensors.c ../App/services/mb_regmodel.c ../App/services/sensors.c ../App/services/rpm.c)
