@@ -122,7 +122,9 @@ static uint16_t diag_echo(const uint8_t *req, uint8_t *resp) {
     return finalize(resp, MB_HEADER_SIZE);
 }
 
-static uint16_t handle_diagnostics(const uint8_t *req, uint8_t *resp) {
+static uint16_t handle_diagnostics(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
+    if (req_len < MB_HEADER_SIZE + 2u)
+        return finalize(resp, make_exception(resp, MB_FC_DIAGNOSTICS, MB_EXC_ILLEGAL_VALUE));
     uint16_t sub = (uint16_t)(req[MB_F_START_HI] << 8) | req[MB_F_START_LO];
     if (sub == MB_DIAG_CLEAR_COUNTERS) {
         for (uint8_t i = 0; i < MB_COUNTER_COUNT; i++) s_counter[i] = 0;
@@ -154,7 +156,7 @@ static uint16_t dispatch_fc(const uint8_t *req, uint16_t req_len, uint8_t *resp)
         case MB_FC_REPORT_SLAVE_ID:
             return handle_report_slave_id(resp);
         case MB_FC_DIAGNOSTICS:
-            return handle_diagnostics(req, resp);
+            return handle_diagnostics(req, req_len, resp);
         default:
             return finalize(resp, make_exception(resp, req[MB_F_FUNCTION], MB_EXC_ILLEGAL_FUNCTION));
     }

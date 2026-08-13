@@ -66,11 +66,22 @@ static void test_clear_counters(void) {
     TEST_ASSERT_EQUAL_UINT16(0, mb_engine_counter(0));
 }
 
+static void test_short_diag_frame_illegal_value(void) {
+    uint8_t req[8] = { MB_SLAVE_ADDR, MB_FC_DIAGNOSTICS }; /* no sub-function/data */
+    uint16_t c = modbus_crc16(req, 2); req[2] = (uint8_t)c; req[3] = (uint8_t)(c >> 8);
+    uint8_t resp[MB_MAX_FRAME]; uint16_t rl = 0;
+    mb_engine_process(req, 4, resp, &rl);          /* 4-byte frame, valid CRC over first 2 */
+    TEST_ASSERT_EQUAL_UINT8(MB_FC_DIAGNOSTICS | MB_ERROR_RESPONSE, resp[1]);
+    TEST_ASSERT_EQUAL_UINT8(MB_EXC_ILLEGAL_VALUE, resp[2]);
+    TEST_ASSERT_FALSE(mb_engine_test_mode());      /* garbage did not enter test mode */
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_return_query_data_loopback);
     RUN_TEST(test_enter_test_mode_sets_flag);
     RUN_TEST(test_return_counter_subfunction);
     RUN_TEST(test_clear_counters);
+    RUN_TEST(test_short_diag_frame_illegal_value);
     return UNITY_END();
 }
