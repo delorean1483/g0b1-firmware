@@ -54,3 +54,34 @@ int rtc_set_time(const rtc_time_t *t) {
     r[6] = rtc_bin_to_bcd(t->year);
     return s_be->write(s_be->ctx, MCP_RTCSEC, r, 7);
 }
+
+static int rtc_set_bits(uint8_t reg, uint8_t mask) {
+    uint8_t v;
+    int rc = s_be->read(s_be->ctx, reg, &v, 1);
+    if (rc) return rc;
+    v |= mask;
+    return s_be->write(s_be->ctx, reg, &v, 1);
+}
+
+int rtc_osc_start(void)     { return rtc_set_bits(MCP_RTCSEC, MCP_ST_BIT); }
+int rtc_backup_enable(void) { return rtc_set_bits(MCP_RTCWKDAY, MCP_VBATEN); }
+
+bool rtc_osc_running(void) {
+    uint8_t v = 0;
+    if (s_be->read(s_be->ctx, MCP_RTCWKDAY, &v, 1)) return false;
+    return (v & MCP_OSCRUN) != 0u;
+}
+
+int rtc_sram_read(uint8_t off, uint8_t *buf, uint16_t len) {
+    if ((uint16_t)off + len > MCP_SRAM_SIZE) return -1;
+    return s_be->read(s_be->ctx, (uint8_t)(MCP_SRAM_BASE + off), buf, len);
+}
+int rtc_sram_write(uint8_t off, const uint8_t *buf, uint16_t len) {
+    if ((uint16_t)off + len > MCP_SRAM_SIZE) return -1;
+    return s_be->write(s_be->ctx, (uint8_t)(MCP_SRAM_BASE + off), buf, len);
+}
+uint8_t rtc_reg52_read(void) {
+    uint8_t v = 0;
+    rtc_sram_read(0, &v, 1);
+    return v;
+}

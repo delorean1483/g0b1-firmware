@@ -21,4 +21,11 @@ void rtc_init(const i2c_backend_t *be);
 int  rtc_get_time(rtc_time_t *t);
 int  rtc_set_time(const rtc_time_t *t);
 
+int     rtc_osc_start(void);
+int     rtc_backup_enable(void);
+bool    rtc_osc_running(void);
+int     rtc_sram_read(uint8_t off, uint8_t *buf, uint16_t len);
+int     rtc_sram_write(uint8_t off, const uint8_t *buf, uint16_t len);
+uint8_t rtc_reg52_read(void);
+
 #endif /* RTC_H */
