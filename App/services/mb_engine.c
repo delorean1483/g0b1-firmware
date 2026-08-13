@@ -1,7 +1,6 @@
 #include "mb_engine.h"
 #include "mb_regmodel.h"
 #include "modbus_crc.h"
-#include "modbus_frame.h"
 #include <string.h>
 
 static uint16_t s_counter[MB_COUNTER_COUNT];
@@ -164,12 +163,26 @@ static uint16_t dispatch_fc(const uint8_t *req, uint16_t req_len, uint8_t *resp)
 
 void mb_engine_process(const uint8_t *req, uint16_t req_len, uint8_t *resp, uint16_t *resp_len) {
     *resp_len = 0;
-    mb_frame_status_t st = mb_check_frame(req, req_len, MB_SLAVE_ADDR);
-    if (st != MB_FRAME_OK) return;                 /* not-for-us / short / bad CRC -> silent */
-    if (req[MB_F_ADDR] == MB_BROADCAST_ADDR) {     /* broadcast: act, no response (no read/broadcast here) */
+    if (req_len < 4u) return;                          /* too short to hold addr+fc+crc */
+
+    uint8_t addr = req[MB_F_ADDR];
+    bool for_us = (addr == MB_SLAVE_ADDR);
+    bool broadcast = (addr == MB_BROADCAST_ADDR);
+    if (!for_us && !broadcast) return;                 /* not our address: silent */
+
+    /* Validate CRC over the whole frame (last 2 bytes are the CRC, little-endian). */
+    uint16_t crc = modbus_crc16(req, (uint16_t)(req_len - 2u));
+    if ((uint8_t)crc != req[req_len - 2u] || (uint8_t)(crc >> 8) != req[req_len - 1u]) {
+        bump(1);                                        /* comm error */
         return;
     }
-    /* TODO: Task 6 will formalize counter policy across all frame-flow paths. */
-    bump(0);   /* interim: bus-message counter */
-    *resp_len = dispatch_fc(req, req_len, resp);
+
+    bump(0);                                            /* bus message */
+    if (for_us) bump(3);                                /* slave message */
+
+    uint16_t len = dispatch_fc(req, req_len, resp);
+    if ((resp[MB_F_FUNCTION] & MB_ERROR_RESPONSE) != 0u) bump(2); /* exception */
+
+    if (broadcast) { *resp_len = 0; return; }           /* no reply to broadcast */
+    *resp_len = len;
 }
