@@ -22,4 +22,24 @@
 #define BATT_CV_NUM   2
 #define BATT_CV_DEN   989
 
+/* External NTC (IN4): old Kohler 14-point table (10-bit counts -> degF), with
+ * the count column rescaled x4.4 for the new 12-bit / 3.3V-excited / 3.000V-ref
+ * front-end (see plan "Derived conversions"). Descending by count. */
+#define EXT_NTC_TABLE_LEN   14
+/* F1: open sensor saturates at 4095 (old 1020->4488 > ADC max), so disconnect
+ * is only detectable at rail saturation. Provisional; confirm on bench. */
+#define NTC_DISCONNECT_CNT  4090   /* >= this  => disconnected/too-cold => OFF, 0 degF */
+#define NTC_SHORT_CNT       0      /* == this  => shorted => OFF, 0 degF */
+#define NTC_FLOOR_CNT       3709   /* >  this (and < disconnect) => floor at -4 degF, ON */
+#define NTC_FLOOR_F         (-4)
+#define NTC_OVERMAX_CNT     238    /* <= this  => over max temp (>248 degF) => OFF, 0 degF */
+#ifdef SENSORS_CAL_OWNER
+static const int32_t ext_ntc_table[EXT_NTC_TABLE_LEN][2] = {
+    {4488,   0}, {3709,  -4}, {2548,  20}, {1971,  32},
+    {1518,  50}, {1074,  68}, { 924,  80}, { 774,  92},
+    { 629, 104}, { 537, 120}, { 422, 140}, { 312, 176},
+    { 264, 212}, { 238, 248},
+};
+#endif
+
 #endif /* SENSORS_CAL_H */
