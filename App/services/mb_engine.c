@@ -115,6 +115,30 @@ static uint16_t handle_report_slave_id(uint8_t *resp) {
     return finalize(resp, (uint16_t)(3u + n));
 }
 
+static void bump(uint8_t idx) { if (idx < MB_COUNTER_COUNT && s_counter[idx] != 0xFFFFu) s_counter[idx]++; }
+
+static uint16_t diag_echo(const uint8_t *req, uint8_t *resp) {
+    for (uint16_t i = 0; i < MB_HEADER_SIZE; i++) resp[i] = req[i];
+    return finalize(resp, MB_HEADER_SIZE);
+}
+
+static uint16_t handle_diagnostics(const uint8_t *req, uint8_t *resp) {
+    uint16_t sub = (uint16_t)(req[MB_F_START_HI] << 8) | req[MB_F_START_LO];
+    if (sub == MB_DIAG_CLEAR_COUNTERS) {
+        for (uint8_t i = 0; i < MB_COUNTER_COUNT; i++) s_counter[i] = 0;
+        return diag_echo(req, resp);
+    }
+    if (sub >= MB_DIAG_FIRST_COUNTER && sub <= MB_DIAG_LAST_COUNTER) {
+        uint16_t v = s_counter[sub - MB_DIAG_FIRST_COUNTER];
+        resp[MB_F_ADDR] = MB_SLAVE_ADDR; resp[MB_F_FUNCTION] = MB_FC_DIAGNOSTICS;
+        resp[MB_F_START_HI] = req[MB_F_START_HI]; resp[MB_F_START_LO] = req[MB_F_START_LO];
+        resp[MB_F_QTY_HI] = (uint8_t)(v >> 8); resp[MB_F_QTY_LO] = (uint8_t)v;
+        return finalize(resp, MB_HEADER_SIZE);
+    }
+    if (sub == MB_DIAG_ENTER_TEST) s_test_mode = true;
+    return diag_echo(req, resp);   /* query-data / restart / clr-overrun / enter-test / other */
+}
+
 /* Returns response length (pre-CRC handlers call finalize themselves), or 0 for no response. */
 static uint16_t dispatch_fc(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
     switch (req[MB_F_FUNCTION]) {
@@ -129,6 +153,8 @@ static uint16_t dispatch_fc(const uint8_t *req, uint16_t req_len, uint8_t *resp)
             return handle_read_exception(resp);
         case MB_FC_REPORT_SLAVE_ID:
             return handle_report_slave_id(resp);
+        case MB_FC_DIAGNOSTICS:
+            return handle_diagnostics(req, resp);
         default:
             return finalize(resp, make_exception(resp, req[MB_F_FUNCTION], MB_EXC_ILLEGAL_FUNCTION));
     }
@@ -141,5 +167,7 @@ void mb_engine_process(const uint8_t *req, uint16_t req_len, uint8_t *resp, uint
     if (req[MB_F_ADDR] == MB_BROADCAST_ADDR) {     /* broadcast: act, no response (no read/broadcast here) */
         return;
     }
+    /* TODO: Task 6 will formalize counter policy across all frame-flow paths. */
+    bump(0);   /* interim: bus-message counter */
     *resp_len = dispatch_fc(req, req_len, resp);
 }
