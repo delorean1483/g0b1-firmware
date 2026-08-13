@@ -86,6 +86,15 @@ static void test_write_multiple_short_frame_illegal_value(void) {
     TEST_ASSERT_EQUAL_UINT8(MB_EXC_ILLEGAL_VALUE, resp[2]);
 }
 
+static void test_write_multiple_below_header_illegal_value(void) {
+    uint8_t req[8] = { MB_SLAVE_ADDR, MB_FC_WRITE_MULTIPLE, 0x00 }; /* only 3 meaningful bytes */
+    uint16_t c = modbus_crc16(req, 3); req[3] = (uint8_t)c; req[4] = (uint8_t)(c >> 8);
+    uint8_t resp[MB_MAX_FRAME]; uint16_t rl = 0;
+    mb_engine_process(req, 5, resp, &rl);          /* 5-byte frame, valid CRC over first 3 */
+    TEST_ASSERT_EQUAL_UINT8(MB_FC_WRITE_MULTIPLE | MB_ERROR_RESPONSE, resp[1]);
+    TEST_ASSERT_EQUAL_UINT8(MB_EXC_ILLEGAL_VALUE, resp[2]);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_write_single_echoes_request);
@@ -94,5 +103,6 @@ int main(void) {
     RUN_TEST(test_write_multiple_two_regs);
     RUN_TEST(test_write_single_short_frame_illegal_value);
     RUN_TEST(test_write_multiple_short_frame_illegal_value);
+    RUN_TEST(test_write_multiple_below_header_illegal_value);
     return UNITY_END();
 }

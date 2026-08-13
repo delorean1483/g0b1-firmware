@@ -71,6 +71,9 @@ static uint16_t handle_write_single(const uint8_t *req, uint16_t req_len, uint8_
 
 /* FC 0x10: write multiple registers starting at 1-based (start+1). */
 static uint16_t handle_write_multiple(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
+    if (req_len < MB_HEADER_SIZE)   /* need offsets 0..5 (addr..qty_lo) present */
+        return finalize(resp, make_exception(resp, MB_FC_WRITE_MULTIPLE, MB_EXC_ILLEGAL_VALUE));
+
     uint16_t start = (uint16_t)(req[MB_F_START_HI] << 8) | req[MB_F_START_LO];
     uint16_t count = (uint16_t)(req[MB_F_QTY_HI] << 8) | req[MB_F_QTY_LO];
     if (count < 1u || count > 0x7Du) return finalize(resp, make_exception(resp, MB_FC_WRITE_MULTIPLE, MB_EXC_ILLEGAL_VALUE));
