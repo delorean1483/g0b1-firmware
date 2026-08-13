@@ -28,4 +28,20 @@ int     rtc_sram_read(uint8_t off, uint8_t *buf, uint16_t len);
 int     rtc_sram_write(uint8_t off, const uint8_t *buf, uint16_t len);
 uint8_t rtc_reg52_read(void);
 
+void rtcc_set_year(uint16_t v);
+void rtcc_set_month(uint16_t v);
+void rtcc_set_day(uint16_t v);
+void rtcc_set_weekday(uint16_t v);
+void rtcc_set_hour(uint16_t v);
+void rtcc_set_minute(uint16_t v);
+void rtcc_set_second(uint16_t v);
+int  rtcc_commit(void);
+uint16_t rtcc_get_year(void);
+uint16_t rtcc_get_month(void);
+uint16_t rtcc_get_day(void);
+uint16_t rtcc_get_weekday(void);
+uint16_t rtcc_get_hour(void);
+uint16_t rtcc_get_minute(void);
+uint16_t rtcc_get_second(void);
+
 #endif /* RTC_H */

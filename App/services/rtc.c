@@ -85,3 +85,28 @@ uint8_t rtc_reg52_read(void) {
     rtc_sram_read(0, &v, 1);
     return v;
 }
+
+static rtc_time_t s_rtcc_stage;   /* staged setters buffer here */
+
+void rtcc_set_year(uint16_t v)    { s_rtcc_stage.year    = (uint8_t)v; }
+void rtcc_set_month(uint16_t v)   { s_rtcc_stage.month   = (uint8_t)v; }
+void rtcc_set_day(uint16_t v)     { s_rtcc_stage.date    = (uint8_t)v; }
+void rtcc_set_weekday(uint16_t v) { s_rtcc_stage.weekday = (uint8_t)v; }
+void rtcc_set_hour(uint16_t v)    { s_rtcc_stage.hour    = (uint8_t)v; }
+void rtcc_set_minute(uint16_t v)  { s_rtcc_stage.min     = (uint8_t)v; }
+void rtcc_set_second(uint16_t v)  { s_rtcc_stage.sec     = (uint8_t)v; }
+
+int rtcc_commit(void) { return rtc_set_time(&s_rtcc_stage); }
+
+static rtc_time_t rtcc_live(void) {
+    rtc_time_t t = {0};
+    rtc_get_time(&t);
+    return t;
+}
+uint16_t rtcc_get_year(void)    { return rtcc_live().year; }
+uint16_t rtcc_get_month(void)   { return rtcc_live().month; }
+uint16_t rtcc_get_day(void)     { return rtcc_live().date; }
+uint16_t rtcc_get_weekday(void) { return rtcc_live().weekday; }
+uint16_t rtcc_get_hour(void)    { return rtcc_live().hour; }
+uint16_t rtcc_get_minute(void)  { return rtcc_live().min; }
+uint16_t rtcc_get_second(void)  { return rtcc_live().sec; }
