@@ -43,3 +43,4 @@ add_unity_test(test_rtc_calendar test_rtc_calendar.c ../App/services/rtc_calenda
 add_unity_test(test_mb_regmodel test_mb_regmodel.c ../App/services/mb_regmodel.c)
 add_unity_test(test_mb_engine_read test_mb_engine_read.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_frame.c ../App/services/modbus_crc.c)
 add_unity_test(test_mb_engine_write test_mb_engine_write.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_frame.c ../App/services/modbus_crc.c)
+add_unity_test(test_mb_engine_misc test_mb_engine_misc.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_frame.c ../App/services/modbus_crc.c)

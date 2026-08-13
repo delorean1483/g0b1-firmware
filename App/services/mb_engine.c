@@ -2,6 +2,7 @@
 #include "mb_regmodel.h"
 #include "modbus_crc.h"
 #include "modbus_frame.h"
+#include <string.h>
 
 static uint16_t s_counter[MB_COUNTER_COUNT];
 static bool     s_test_mode;
@@ -96,6 +97,24 @@ static uint16_t handle_write_multiple(const uint8_t *req, uint16_t req_len, uint
     return finalize(resp, MB_HEADER_SIZE);
 }
 
+static const char MB_SLAVE_ID[] = "EF-G0B1R";
+
+static uint16_t handle_read_exception(uint8_t *resp) {
+    resp[MB_F_ADDR] = MB_SLAVE_ADDR;
+    resp[MB_F_FUNCTION] = MB_FC_READ_EXCEPTION;
+    resp[2] = 0x00u;
+    return finalize(resp, 3u);
+}
+
+static uint16_t handle_report_slave_id(uint8_t *resp) {
+    uint8_t n = (uint8_t)strlen(MB_SLAVE_ID);
+    resp[MB_F_ADDR] = MB_SLAVE_ADDR;
+    resp[MB_F_FUNCTION] = MB_FC_REPORT_SLAVE_ID;
+    resp[2] = n;                                   /* byte count */
+    for (uint8_t i = 0; i < n; i++) resp[3u + i] = (uint8_t)MB_SLAVE_ID[i];
+    return finalize(resp, (uint16_t)(3u + n));
+}
+
 /* Returns response length (pre-CRC handlers call finalize themselves), or 0 for no response. */
 static uint16_t dispatch_fc(const uint8_t *req, uint16_t req_len, uint8_t *resp) {
     switch (req[MB_F_FUNCTION]) {
@@ -106,6 +125,10 @@ static uint16_t dispatch_fc(const uint8_t *req, uint16_t req_len, uint8_t *resp)
             return handle_write_single(req, req_len, resp);
         case MB_FC_WRITE_MULTIPLE:
             return handle_write_multiple(req, req_len, resp);
+        case MB_FC_READ_EXCEPTION:
+            return handle_read_exception(resp);
+        case MB_FC_REPORT_SLAVE_ID:
+            return handle_report_slave_id(resp);
         default:
             return finalize(resp, make_exception(resp, req[MB_F_FUNCTION], MB_EXC_ILLEGAL_FUNCTION));
     }
