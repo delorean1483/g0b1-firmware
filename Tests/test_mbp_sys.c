@@ -27,10 +27,26 @@ static void test_reset_request_invokes_callback(void) {
     TEST_ASSERT_EQUAL_INT(1, s_reset_calls);
 }
 
+static void test_boot_flag_reg35_rw(void) {
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(35, 0xA5));
+    uint16_t o = 0;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(35, &o));
+    TEST_ASSERT_EQUAL_UINT16(0xA5, o);
+}
+
+static void test_reset_reg34_read_returns_zero_and_no_callback(void) {
+    uint16_t o = 0xFFFF;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(34, &o));
+    TEST_ASSERT_EQUAL_UINT16(0, o);              /* read returns 0 */
+    TEST_ASSERT_EQUAL_INT(0, s_reset_calls);     /* a READ must NOT invoke the reset callback */
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_relay_fw_is_read_only_constant);
     RUN_TEST(test_display_fw_rw);
     RUN_TEST(test_reset_request_invokes_callback);
+    RUN_TEST(test_boot_flag_reg35_rw);
+    RUN_TEST(test_reset_reg34_read_returns_zero_and_no_callback);
     return UNITY_END();
 }
