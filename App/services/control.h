@@ -56,5 +56,8 @@ void control_tick(apu_ctx_t *ctx);   /* apply mode-request transition, then disp
 void outputs_apply(const apu_ctx_t *ctx);
 void control_powerup_mode(apu_ctx_t *ctx);   /* register for OP_POWER_UP */
 void control_off_mode(apu_ctx_t *ctx);   /* register for OP_OFF */
+void control_inputs_init(apu_ctx_t *ctx);
+void control_inputs_service(apu_ctx_t *ctx);
+void control_regs_register(apu_ctx_t *ctx);
 
 #endif /* CONTROL_H */

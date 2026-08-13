@@ -61,3 +61,4 @@ add_unity_test(test_control_dispatch test_control_dispatch.c ../App/services/con
 add_unity_test(test_control_outputs test_control_outputs.c ../App/services/control_outputs.c ../App/services/control.c ../App/services/bsp_io.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c)
 add_unity_test(test_control_powerup test_control_powerup.c ../App/services/control_powerup.c ../App/services/control.c ../App/services/app_timers.c ../App/services/fan_speed.c)
 add_unity_test(test_control_off test_control_off.c ../App/services/control_off.c ../App/services/control.c ../App/services/fan_speed.c)
+add_unity_test(test_control_io test_control_io.c ../App/services/control_io.c ../App/services/bsp_io.c ../App/services/io_debounce.c ../App/services/mb_regmodel.c ../App/services/control.c fakes/fake_bsp_io.c)
