@@ -82,6 +82,9 @@ static uint16_t handle_write_multiple(const uint8_t *req, uint16_t req_len, uint
     if ((uint32_t)req_len < (uint32_t)(MB_HEADER_SIZE + 1u) + 2u * count + 2u)
         return finalize(resp, make_exception(resp, MB_FC_WRITE_MULTIPLE, MB_EXC_ILLEGAL_VALUE));
 
+    if (req[MB_HEADER_SIZE] != (uint8_t)(2u * count))
+        return finalize(resp, make_exception(resp, MB_FC_WRITE_MULTIPLE, MB_EXC_ILLEGAL_VALUE));
+
     uint16_t ndx = MB_HEADER_SIZE + 1u;    /* skip byte-count at [6]; values start at [7] */
     for (uint16_t i = 0; i < count; i++) {
         uint16_t val = (uint16_t)(req[ndx] << 8) | req[ndx + 1u];
