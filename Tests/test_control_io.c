@@ -19,7 +19,7 @@ void tearDown(void) {}
 
 static void test_debounced_oil_input_reaches_ctx_and_reg7(void) {
     fake_bsp_io_set_input(IN_OIL_PRESSURE, true);
-    for (unsigned int i = 0; i < DEBOUNCE_TIME; i++) control_inputs_service(&ctx); /* 10 samples -> commit */
+    for (unsigned int i = 0; i < CONTROL_INPUT_DEBOUNCE_TIME; i++) control_inputs_service(&ctx); /* 50 samples -> commit */
     TEST_ASSERT_TRUE(ctx.in_oil_pressure_ok);
     uint16_t o = 0;
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(7, &o));   /* reg 7 = oil-pressure state */
@@ -28,7 +28,7 @@ static void test_debounced_oil_input_reaches_ctx_and_reg7(void) {
 
 static void test_truck_ignition_reg8(void) {
     fake_bsp_io_set_input(IN_TRUCK_IGNITION, true);
-    for (unsigned int i = 0; i < DEBOUNCE_TIME; i++) control_inputs_service(&ctx);
+    for (unsigned int i = 0; i < CONTROL_INPUT_DEBOUNCE_TIME; i++) control_inputs_service(&ctx);
     uint16_t o = 0;
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(8, &o));
     TEST_ASSERT_EQUAL_UINT16(1, o);

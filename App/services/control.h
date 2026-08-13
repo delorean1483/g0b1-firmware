@@ -3,6 +3,8 @@
 #include "types.h"
 #include "fan_speed.h"   /* fan_speed_t for the evap-fan request */
 
+#define CONTROL_INPUT_DEBOUNCE_TIME 50u   /* PIC oil/ignition: 50 x 10 ms = 500 ms */
+
 typedef enum {
     OP_POWER_UP = 0, OP_OFF, OP_ENGINE_START, OP_CLIMATE, OP_BATTERY,
     OP_COLD_STORAGE, OP_ERROR_SHUTDOWN, OP_STATE_COUNT

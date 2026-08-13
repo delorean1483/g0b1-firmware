@@ -7,8 +7,8 @@ static discrete_input_t s_oil, s_ign;
 static apu_ctx_t *s_ctx;
 
 void control_inputs_init(apu_ctx_t *ctx) {
-    io_debounce_init(&s_oil, DEBOUNCE_TIME, SWITCH_OPEN);
-    io_debounce_init(&s_ign, DEBOUNCE_TIME, SWITCH_OPEN);
+    io_debounce_init(&s_oil, CONTROL_INPUT_DEBOUNCE_TIME, SWITCH_OPEN);
+    io_debounce_init(&s_ign, CONTROL_INPUT_DEBOUNCE_TIME, SWITCH_OPEN);
     ctx->in_oil_pressure_ok = false;
     ctx->in_truck_ignition = false;
 }

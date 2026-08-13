@@ -19,8 +19,9 @@ static void test_off_clears_outputs_and_error(void) {
 }
 
 static void test_off_holds_op_state(void) {
+    ctx.op_state = OP_CLIMATE;          /* seed a non-OFF state */
     control_off_mode(&ctx);
-    TEST_ASSERT_EQUAL_INT(OP_OFF, ctx.op_state);   /* no self-transition */
+    TEST_ASSERT_EQUAL_INT(OP_CLIMATE, ctx.op_state);  /* handler must not self-transition */
 }
 
 int main(void) {
