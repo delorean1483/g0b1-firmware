@@ -52,3 +52,4 @@ add_unity_test(test_mbp_nvm test_mbp_nvm.c ../App/services/mbp_nvm.c ../App/serv
 add_unity_test(test_mbp_sys test_mbp_sys.c ../App/services/mbp_sys.c ../App/services/mb_regmodel.c)
 add_unity_test(test_mb_integration test_mb_integration.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/mbp_sensors.c ../App/services/mbp_rtc.c ../App/services/mbp_nvm.c ../App/services/mbp_sys.c ../App/services/sensors.c ../App/services/rpm.c ../App/services/rtc.c ../App/services/rtc_calendar.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_i2c.c fakes/fake_nor.c)
 add_unity_test(test_bsp_io test_bsp_io.c ../App/services/bsp_io.c fakes/fake_bsp_io.c)
+add_unity_test(test_bsp_pwm test_bsp_pwm.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c fakes/fake_bsp_pwm.c)
