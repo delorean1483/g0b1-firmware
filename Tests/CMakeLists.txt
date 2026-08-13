@@ -57,3 +57,4 @@ add_unity_test(test_io_debounce test_io_debounce.c ../App/services/io_debounce.c
 add_unity_test(test_app_timers test_app_timers.c ../App/services/app_timers.c)
 add_unity_test(test_sched test_sched.c ../App/services/sched.c ../App/services/app_timers.c)
 add_unity_test(test_bsp_integration test_bsp_integration.c ../App/services/sched.c ../App/services/app_timers.c ../App/services/io_debounce.c ../App/services/bsp_io.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c)
+add_unity_test(test_control_dispatch test_control_dispatch.c ../App/services/control.c ../App/services/fan_speed.c)
