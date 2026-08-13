@@ -14,4 +14,8 @@ uint16_t sensors_battery_cv(uint16_t counts, uint16_t vref_cal);
  * *sensor_state ON/OFF (disconnect/short/over-range => OFF, 0 degF). */
 int16_t sensors_ext_temp_f(uint16_t counts, uint16_t vref_cal, uint8_t *sensor_state);
 
+/* Enclosure (on-board TMP6131) temperature (degF), + reg-37 offset trim,
+ * clamped to [TEMP_CLAMP_MIN_F, TEMP_CLAMP_MAX_F]. */
+int16_t sensors_encl_temp_f(uint16_t counts, int16_t temp_cal);
+
 #endif /* SENSORS_H */

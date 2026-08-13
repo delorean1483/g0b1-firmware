@@ -31,3 +31,4 @@ add_unity_test(test_nvm_record test_nvm_record.c ../App/services/nvm_record.c ..
 add_unity_test(test_nvm test_nvm.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_nor.c)
 add_unity_test(test_sensors_battery test_sensors_battery.c ../App/services/sensors.c)
 add_unity_test(test_sensors_ext_temp test_sensors_ext_temp.c ../App/services/sensors.c)
+add_unity_test(test_sensors_encl_temp test_sensors_encl_temp.c ../App/services/sensors.c)

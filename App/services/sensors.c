@@ -32,3 +32,11 @@ int16_t sensors_ext_temp_f(uint16_t counts, uint16_t vref_cal, uint8_t *sensor_s
     if (c > NTC_FLOOR_CNT) return NTC_FLOOR_F;     /* colder than -4 degF => floor */
     return sens_interp(ext_ntc_table, EXT_NTC_TABLE_LEN, c);
 }
+
+int16_t sensors_encl_temp_f(uint16_t counts, int16_t temp_cal) {
+    int16_t f = sens_interp(encl_tmp6131_table, ENCL_TABLE_LEN, (int32_t)counts);
+    f = (int16_t)(f + temp_cal);
+    if (f > TEMP_CLAMP_MAX_F) f = TEMP_CLAMP_MAX_F;
+    if (f < TEMP_CLAMP_MIN_F) f = TEMP_CLAMP_MIN_F;
+    return f;
+}

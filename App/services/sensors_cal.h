@@ -42,4 +42,25 @@ static const int32_t ext_ntc_table[EXT_NTC_TABLE_LEN][2] = {
 };
 #endif
 
+/* Enclosure (IN0): TMP6131 (TI linear silicon PTC, 10k @ 25C) with a 10k fixed
+ * top resistor, ratiometric to the 3.000 V ref. count = 4096*S/(S+1), S=R/R25.
+ * degF from the TMP6131 R/R25-vs-T curve. R/R25 values are first-cut from the
+ * TMP61 datasheet (SNIS183) and MUST be verified (F3); 25C=2048cnt is exact.
+ * Descending by count for sens_interp(). */
+#define ENCL_TABLE_LEN  6
+/* Preserve PIC Find_Cabin_Temperature clamp. */
+#define TEMP_CLAMP_MAX_F   302
+#define TEMP_CLAMP_MIN_F   (-67)
+#ifdef SENSORS_CAL_OWNER
+static const int32_t encl_tmp6131_table[ENCL_TABLE_LEN][2] = {
+    /* count, degF   (S=R/R25 -> degC -> degF) */
+    {2533, 257},  /* S~1.62, 125 C */
+    {2361, 185},  /* S~1.36,  85 C */
+    {2191, 122},  /* S~1.15,  50 C */
+    {2048,  77},  /* S=1.00,  25 C  (exact anchor) */
+    {1894,  32},  /* S~0.86,   0 C */
+    {1665, -40},  /* S~0.685,-40 C */
+};
+#endif
+
 #endif /* SENSORS_CAL_H */
