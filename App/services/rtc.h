@@ -17,4 +17,8 @@ typedef struct {
 uint8_t rtc_bcd_to_bin(uint8_t bcd);
 uint8_t rtc_bin_to_bcd(uint8_t bin);
 
+void rtc_init(const i2c_backend_t *be);
+int  rtc_get_time(rtc_time_t *t);
+int  rtc_set_time(const rtc_time_t *t);
+
 #endif /* RTC_H */

@@ -24,3 +24,33 @@ uint8_t rtc_bcd_to_bin(uint8_t bcd) {
 uint8_t rtc_bin_to_bcd(uint8_t bin) {
     return (uint8_t)(((bin / 10u) << 4) | (bin % 10u));
 }
+
+static const i2c_backend_t *s_be;
+
+void rtc_init(const i2c_backend_t *be) { s_be = be; }
+
+int rtc_get_time(rtc_time_t *t) {
+    uint8_t r[7];
+    int rc = s_be->read(s_be->ctx, MCP_RTCSEC, r, 7);
+    if (rc) return rc;
+    t->sec     = rtc_bcd_to_bin((uint8_t)(r[0] & 0x7Fu));
+    t->min     = rtc_bcd_to_bin((uint8_t)(r[1] & 0x7Fu));
+    t->hour    = rtc_bcd_to_bin((uint8_t)(r[2] & 0x3Fu));  /* 24-hour */
+    t->weekday = (uint8_t)(r[3] & 0x07u);
+    t->date    = rtc_bcd_to_bin((uint8_t)(r[4] & 0x3Fu));
+    t->month   = rtc_bcd_to_bin((uint8_t)(r[5] & 0x1Fu));
+    t->year    = rtc_bcd_to_bin(r[6]);
+    return 0;
+}
+
+int rtc_set_time(const rtc_time_t *t) {
+    uint8_t r[7];
+    r[0] = (uint8_t)(MCP_ST_BIT | rtc_bin_to_bcd(t->sec));   /* keep oscillator running */
+    r[1] = rtc_bin_to_bcd(t->min);
+    r[2] = rtc_bin_to_bcd(t->hour);                          /* 24-hour (bit6 = 0) */
+    r[3] = (uint8_t)(MCP_VBATEN | (t->weekday & 0x07u));     /* enable battery backup */
+    r[4] = rtc_bin_to_bcd(t->date);
+    r[5] = rtc_bin_to_bcd(t->month);
+    r[6] = rtc_bin_to_bcd(t->year);
+    return s_be->write(s_be->ctx, MCP_RTCSEC, r, 7);
+}
