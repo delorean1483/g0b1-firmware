@@ -29,6 +29,10 @@ static void test_all_fields_roundtrip_distinct_addresses(void) {
     TEST_ASSERT_EQUAL_UINT8(2,    nvm_read_byte(EE_CLND_START_MODE));
     TEST_ASSERT_EQUAL_UINT8(0x25, nvm_read_byte(EE_CLND_START_YEAR));
     TEST_ASSERT_EQUAL_UINT8(1,    nvm_read_byte(EE_CLND_START_AMPM));
+    TEST_ASSERT_EQUAL_UINT8(6,  nvm_read_byte(EE_CLND_START_MONTH));
+    TEST_ASSERT_EQUAL_UINT8(15, nvm_read_byte(EE_CLND_START_DATE));
+    TEST_ASSERT_EQUAL_UINT8(9,  nvm_read_byte(EE_CLND_START_HOUR));
+    TEST_ASSERT_EQUAL_UINT8(30, nvm_read_byte(EE_CLND_START_MIN));
 }
 
 int main(void) {

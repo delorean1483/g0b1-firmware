@@ -47,7 +47,7 @@ int rtc_set_time(const rtc_time_t *t) {
     uint8_t r[7];
     r[0] = (uint8_t)(MCP_ST_BIT | rtc_bin_to_bcd(t->sec));   /* keep oscillator running */
     r[1] = rtc_bin_to_bcd(t->min);
-    r[2] = rtc_bin_to_bcd(t->hour);                          /* 24-hour (bit6 = 0) */
+    r[2] = (uint8_t)(rtc_bin_to_bcd(t->hour) & ~MCP_12_24_BIT); /* force 24-hour (clear bit6) */
     r[3] = (uint8_t)(MCP_VBATEN | (t->weekday & 0x07u));     /* enable battery backup */
     r[4] = rtc_bin_to_bcd(t->date);
     r[5] = rtc_bin_to_bcd(t->month);
