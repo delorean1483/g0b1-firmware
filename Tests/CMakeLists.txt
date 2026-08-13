@@ -41,3 +41,4 @@ add_unity_test(test_rtc_osc_sram test_rtc_osc_sram.c ../App/services/rtc.c fakes
 add_unity_test(test_rtc_rtcc test_rtc_rtcc.c ../App/services/rtc.c fakes/fake_i2c.c)
 add_unity_test(test_rtc_calendar test_rtc_calendar.c ../App/services/rtc_calendar.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_nor.c)
 add_unity_test(test_mb_regmodel test_mb_regmodel.c ../App/services/mb_regmodel.c)
+add_unity_test(test_mb_engine_read test_mb_engine_read.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/modbus_frame.c ../App/services/modbus_crc.c)
