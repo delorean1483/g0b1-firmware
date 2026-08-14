@@ -60,6 +60,35 @@ static void test_engine_on_stops_starter_and_postheats(void) {
     TEST_ASSERT_EQUAL_UINT8(5, ctx.sub_state);          /* ES_CHECK_PRESSURE */
 }
 
+static void test_check_pressure_oil_ok_runs(void) {
+    ctx.sub_state = 5 /*ES_CHECK_PRESSURE*/;
+    ctx.in_oil_pressure_ok = true;                     /* pressure good */
+    ctx.attempted_start_counter = 3;
+    /* SHORT_DELAY_TMR is 0 (expired) in a fresh app_timers_init */
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(ST_RUNNING, ctx.engine_op_status);
+    TEST_ASSERT_EQUAL_UINT8(ST_RUNNING, ctx.control_status);
+    TEST_ASSERT_EQUAL_UINT8(0, ctx.attempted_start_counter);
+    TEST_ASSERT_EQUAL_UINT8(6, ctx.sub_state);         /* ES_COOL_ON */
+}
+
+static void test_check_pressure_oil_low_retry(void) {
+    ctx.sub_state = 5; ctx.in_oil_pressure_ok = false; ctx.attempted_start_counter = 2;
+    ctx.out.fuel_pump = true;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_FALSE(ctx.out.fuel_pump);
+    TEST_ASSERT_EQUAL_UINT8(0, ctx.sub_state);         /* ES_GLOWPLUG_ON retry */
+    TEST_ASSERT_EQUAL_INT(OP_ENGINE_START, ctx.op_state); /* still starting */
+}
+
+static void test_check_pressure_oil_low_5th_attempt_fails(void) {
+    ctx.sub_state = 5; ctx.in_oil_pressure_ok = false; ctx.attempted_start_counter = 5;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(ERR_STARTING_FAILURE, ctx.error_state);
+    TEST_ASSERT_EQUAL_INT(OP_ERROR_SHUTDOWN, ctx.op_state);
+    TEST_ASSERT_EQUAL_UINT8(0, ctx.attempted_start_counter);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_glow_duration_by_temp);
@@ -68,5 +97,8 @@ int main(void) {
     RUN_TEST(test_fuel_on_after_glow);
     RUN_TEST(test_starter_on_after_fuel);
     RUN_TEST(test_engine_on_stops_starter_and_postheats);
+    RUN_TEST(test_check_pressure_oil_ok_runs);
+    RUN_TEST(test_check_pressure_oil_low_retry);
+    RUN_TEST(test_check_pressure_oil_low_5th_attempt_fails);
     return UNITY_END();
 }

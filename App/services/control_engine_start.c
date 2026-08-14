@@ -60,6 +60,29 @@ void control_engine_start_mode(apu_ctx_t *ctx) {
                 ctx->sub_state = ES_CHECK_PRESSURE;
             }
             break;
+        case ES_CHECK_PRESSURE:
+            if (app_timer_expired(SCALE_HUNDRED_MS, GLOW_PLUG_ON_TMR)) {
+                ctx->out.glow_plug = false;
+            }
+            if (app_timer_expired(SCALE_TEN_MS, SHORT_DELAY_TMR)) {
+                if (!ctx->in_oil_pressure_ok) {                 /* oil low (PIC NOK) */
+                    if (ctx->attempted_start_counter >= 5) {
+                        ctx->attempted_start_counter = 0;
+                        ctx->error_state = ERR_STARTING_FAILURE;
+                        ctx->op_state = OP_ERROR_SHUTDOWN;
+                    } else {
+                        ctx->out.fuel_pump = false;
+                        ctx->sub_state = ES_GLOWPLUG_ON;        /* retry */
+                    }
+                } else {                                        /* oil OK */
+                    app_timer_set(SCALE_TEN_MS, SHORT_DELAY_TMR, 0);
+                    ctx->attempted_start_counter = 0;
+                    ctx->engine_op_status = ST_RUNNING;
+                    ctx->control_status = ST_RUNNING;
+                    ctx->sub_state = ES_COOL_ON;
+                }
+            }
+            break;
         default:
             break;
     }
