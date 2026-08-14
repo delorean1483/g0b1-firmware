@@ -28,6 +28,7 @@ enum { CC_START_SETTLE = 0, CC_START_ENGINE, CC_MONITOR_TEMP, CC_START_COOL,
        CC_WAIT_HIGH_PRESSURE_NORMAL };
 
 #define CC_TEMP_OFFSET 3
+#define CONDENSER_STUB_DUTY 1000u   /* OI-2: full airflow stub; head-pressure ramp deferred */
 
 void control_climate_mode(apu_ctx_t *ctx) {
     switch (ctx->sub_state) {
@@ -171,4 +172,7 @@ void control_climate_mode(apu_ctx_t *ctx) {
         ctx->error_state = ERR_HIGH_ENGINE_TEMP;
         ctx->op_state = OP_ERROR_SHUTDOWN;
     }
+    /* OI-2 condenser: follow the compressor at a fixed stub duty (ramp curve deferred). */
+    ctx->out.condenser_fan = ctx->out.compressor_clutch;
+    ctx->out.condenser_duty = ctx->out.compressor_clutch ? CONDENSER_STUB_DUTY : 0u;
 }

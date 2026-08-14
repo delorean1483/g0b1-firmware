@@ -76,3 +76,12 @@ add_unity_test(test_control_engine_start_integration test_control_engine_start_i
 add_unity_test(test_control_ctx_cc test_control_ctx_cc.c ../App/services/control.c ../App/services/fan_speed.c)
 add_unity_test(test_control_1s test_control_1s.c ../App/services/control_climate.c ../App/services/control.c ../App/services/app_timers.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c ../App/services/fan_speed.c fakes/fake_nor.c)
 add_unity_test(test_control_climate test_control_climate.c ../App/services/control_climate.c ../App/services/control.c ../App/services/app_timers.c ../App/services/sensors.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c ../App/services/fan_speed.c fakes/fake_nor.c)
+add_unity_test(test_control_climate_integration test_control_climate_integration.c
+    ../App/services/control.c ../App/services/control_outputs.c ../App/services/control_powerup.c
+    ../App/services/control_off.c ../App/services/control_io.c ../App/services/control_app.c
+    ../App/services/control_engine_start.c ../App/services/control_sample.c ../App/services/control_climate.c
+    ../App/services/sched.c ../App/services/app_timers.c ../App/services/io_debounce.c
+    ../App/services/bsp_io.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c
+    ../App/services/sensors.c ../App/services/mb_regmodel.c
+    ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c
+    fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c fakes/fake_nor.c)
