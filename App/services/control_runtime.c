@@ -6,7 +6,7 @@
 #define HOURS_OIL_CHANGE_SOON    500u
 #define HOURS_OIL_CHANGE_NOW     580u
 #define HOURS_OIL_CHANGE_MISSED  700u
-#define OIL_REWARN_SOON          1200u   /* 20 hr */
+#define OIL_REWARN_ACTIVE        1200u   /* active-warning reload for SOON and NEEDED bands; 20 hr */
 #define OIL_REWARN_PAST_DUE      300u    /* 5 hr  */
 
 static void bump_hour(uint16_t addr) {
@@ -20,10 +20,10 @@ void control_oil_change_check(apu_ctx_t *ctx) {
         ctx->oil_change_state = OIL_GOOD;
     } else if (hours < HOURS_OIL_CHANGE_NOW && app_timer_expired(SCALE_MINUTE, NEXT_OIL_WARNING_TMR)) {
         if (ctx->oil_change_state != OIL_WARNING_DISMISSED) ctx->oil_change_state = OIL_CHANGE_SOON;
-        else app_timer_set(SCALE_MINUTE, NEXT_OIL_WARNING_TMR, OIL_REWARN_SOON);
+        else app_timer_set(SCALE_MINUTE, NEXT_OIL_WARNING_TMR, OIL_REWARN_ACTIVE);
     } else if (hours < HOURS_OIL_CHANGE_MISSED && app_timer_expired(SCALE_MINUTE, NEXT_OIL_WARNING_TMR)) {
         if (ctx->oil_change_state != OIL_WARNING_DISMISSED) ctx->oil_change_state = OIL_CHANGE_NEEDED;
-        else app_timer_set(SCALE_MINUTE, NEXT_OIL_WARNING_TMR, OIL_REWARN_SOON);
+        else app_timer_set(SCALE_MINUTE, NEXT_OIL_WARNING_TMR, OIL_REWARN_ACTIVE);
     } else if (app_timer_expired(SCALE_MINUTE, NEXT_OIL_WARNING_TMR)) {   /* hours >= 700 */
         if (ctx->oil_change_state != OIL_WARNING_DISMISSED) ctx->oil_change_state = OIL_CHANGE_PAST_DUE;
         else app_timer_set(SCALE_MINUTE, NEXT_OIL_WARNING_TMR, OIL_REWARN_PAST_DUE);
@@ -31,6 +31,7 @@ void control_oil_change_check(apu_ctx_t *ctx) {
 }
 
 void control_service_runtime(apu_ctx_t *ctx) {
+    /* Minute accumulators (machine_run_min, engine_run_min, engine_oil_min) stay in 0..59: each resets to 0 the tick it reaches 60. */
     /* Machine hours: always. */
     ctx->machine_run_min++;
     if (ctx->machine_run_min >= 60u) {
