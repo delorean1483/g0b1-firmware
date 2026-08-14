@@ -110,7 +110,65 @@ void control_climate_mode(apu_ctx_t *ctx) {
                 ctx->cool_mode = false;
             }
             break;
+        case CC_COOL_DEFROST_END:
+            if (app_timer_expired(SCALE_SECOND, EVENT_INTERVAL_TMR)) {
+                ctx->out.compressor_clutch = true;
+                ctx->cool_mode = true;
+                ctx->out.evap_fan = true;
+                ctx->control_status = ST_COOLING;
+                app_timer_set(SCALE_MINUTE, DEFROST_CYCLE_TMR, 30);
+                ctx->sub_state = CC_CTRL_RUNNING;
+            }
+            break;
+        case CC_AC_LOW_PRESSURE_RECHK:
+            ctx->out.compressor_clutch = false;
+            ctx->refregerant_check_counter++;
+            if (ctx->refregerant_check_counter > 10u) {
+                ctx->refregerant_check_counter = 0;
+                ctx->sub_state = CC_AC_LOW_PRESSURE_FAIL;
+            } else {
+                ctx->sub_state = CC_COMP_ON;
+            }
+            break;
+        case CC_AC_LOW_PRESSURE_FAIL:
+            ctx->op_state_previous = OP_CLIMATE;
+            ctx->error_state = ERR_AC_LOW_PRESSURE;
+            ctx->op_state = OP_ERROR_SHUTDOWN;
+            break;
+        case CC_AC_HIGH_PRESSURE_RECHK:
+            ctx->out.compressor_clutch = false;
+            ctx->sub_state = CC_WAIT_HIGH_PRESSURE_NORMAL;
+            break;
+        case CC_WAIT_HIGH_PRESSURE_NORMAL:
+            if (ctx->ac_high_pressure_ok) {
+                ctx->out.compressor_clutch = true;
+                app_timer_set(SCALE_SECOND, COMP_EVAP_DELAY_TMR, 0);
+                ctx->sub_state = CC_EVAP_ON;
+            }
+            break;
+        case CC_AC_HIGH_PRESSURE_FAIL:
+            ctx->op_state_previous = OP_CLIMATE;
+            ctx->error_state = ERR_AC_HIGH_PRESSURE;
+            ctx->op_state = OP_ERROR_SHUTDOWN;
+            break;
         default:
             break;
+    }
+    /* A/C pressure monitor (armed once compressor has run >= 2 s). */
+    if (ctx->out.compressor_clutch && ctx->compressor_on_timer >= 2u) {
+        if (!ctx->ac_low_pressure_ok) {
+            ctx->out.compressor_clutch = false;
+            ctx->sub_state = CC_AC_LOW_PRESSURE_RECHK;
+        } else if (!ctx->ac_high_pressure_ok) {
+            ctx->out.compressor_clutch = false;
+            ctx->sub_state = CC_AC_HIGH_PRESSURE_RECHK;
+        } else {
+            ctx->refregerant_check_counter = 0;
+        }
+    }
+    /* Engine over-temp shutdown. */
+    if (!ctx->engine_temp_ok) {
+        ctx->error_state = ERR_HIGH_ENGINE_TEMP;
+        ctx->op_state = OP_ERROR_SHUTDOWN;
     }
 }
