@@ -62,7 +62,14 @@ add_unity_test(test_control_outputs test_control_outputs.c ../App/services/contr
 add_unity_test(test_control_powerup test_control_powerup.c ../App/services/control_powerup.c ../App/services/control.c ../App/services/app_timers.c ../App/services/fan_speed.c)
 add_unity_test(test_control_off test_control_off.c ../App/services/control_off.c ../App/services/control.c ../App/services/fan_speed.c)
 add_unity_test(test_control_io test_control_io.c ../App/services/control_io.c ../App/services/bsp_io.c ../App/services/io_debounce.c ../App/services/mb_regmodel.c ../App/services/control.c fakes/fake_bsp_io.c)
-add_unity_test(test_control_integration test_control_integration.c ../App/services/control.c ../App/services/control_outputs.c ../App/services/control_powerup.c ../App/services/control_off.c ../App/services/control_io.c ../App/services/control_app.c ../App/services/sched.c ../App/services/app_timers.c ../App/services/io_debounce.c ../App/services/bsp_io.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c ../App/services/mb_regmodel.c fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c)
+add_unity_test(test_control_integration test_control_integration.c ../App/services/control.c ../App/services/control_outputs.c ../App/services/control_powerup.c ../App/services/control_off.c ../App/services/control_io.c ../App/services/control_app.c ../App/services/control_engine_start.c ../App/services/control_sample.c ../App/services/sched.c ../App/services/app_timers.c ../App/services/io_debounce.c ../App/services/bsp_io.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c ../App/services/sensors.c ../App/services/mb_regmodel.c fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c)
 add_unity_test(test_control_ctx_es test_control_ctx_es.c ../App/services/control.c ../App/services/fan_speed.c)
 add_unity_test(test_control_sample test_control_sample.c ../App/services/control_sample.c ../App/services/control_io.c ../App/services/control.c ../App/services/sensors.c ../App/services/mb_regmodel.c ../App/services/fan_speed.c ../App/services/bsp_io.c ../App/services/io_debounce.c fakes/fake_bsp_io.c)
 add_unity_test(test_control_engine_start test_control_engine_start.c ../App/services/control_engine_start.c ../App/services/control.c ../App/services/app_timers.c ../App/services/sensors.c ../App/services/fan_speed.c)
+add_unity_test(test_control_engine_start_integration test_control_engine_start_integration.c
+    ../App/services/control.c ../App/services/control_outputs.c ../App/services/control_powerup.c
+    ../App/services/control_off.c ../App/services/control_io.c ../App/services/control_app.c
+    ../App/services/control_engine_start.c ../App/services/control_sample.c
+    ../App/services/sched.c ../App/services/app_timers.c ../App/services/io_debounce.c
+    ../App/services/bsp_io.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c
+    ../App/services/sensors.c ../App/services/mb_regmodel.c fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c)
