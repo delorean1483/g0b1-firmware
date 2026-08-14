@@ -30,6 +30,27 @@ static void test_glow_hot_zero_and_off(void) {
     TEST_ASSERT_FALSE(ctx.out.glow_plug);
 }
 
+static void test_glow_temp_68_is_10s(void) {   /* >=68 branch, at boundary */
+    ctx.ext_temp_sensor_state = SENSOR_ON; ctx.external_temperature = 68;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_TRUE(ctx.out.glow_plug);
+    TEST_ASSERT_EQUAL_UINT16(100, app_timer_get(SCALE_HUNDRED_MS, GLOW_PLUG_ON_TMR));
+}
+
+static void test_glow_temp_32_is_16s(void) {   /* >=32 branch, at boundary */
+    ctx.ext_temp_sensor_state = SENSOR_ON; ctx.external_temperature = 32;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_TRUE(ctx.out.glow_plug);
+    TEST_ASSERT_EQUAL_UINT16(160, app_timer_get(SCALE_HUNDRED_MS, GLOW_PLUG_ON_TMR));
+}
+
+static void test_glow_temp_below_32_is_29s(void) {   /* <32 branch */
+    ctx.ext_temp_sensor_state = SENSOR_ON; ctx.external_temperature = 31;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_TRUE(ctx.out.glow_plug);
+    TEST_ASSERT_EQUAL_UINT16(290, app_timer_get(SCALE_HUNDRED_MS, GLOW_PLUG_ON_TMR));
+}
+
 static void test_fuel_on_after_glow(void) {
     ctx.sub_state = 2 /*ES_FUEL_ON*/;
     /* glow timer 0, short-delay 0 -> fuel on */
@@ -143,6 +164,9 @@ int main(void) {
     RUN_TEST(test_glow_duration_by_temp);
     RUN_TEST(test_glow_no_sensor_28s);
     RUN_TEST(test_glow_hot_zero_and_off);
+    RUN_TEST(test_glow_temp_68_is_10s);
+    RUN_TEST(test_glow_temp_32_is_16s);
+    RUN_TEST(test_glow_temp_below_32_is_29s);
     RUN_TEST(test_fuel_on_after_glow);
     RUN_TEST(test_starter_on_after_fuel);
     RUN_TEST(test_engine_on_stops_starter_and_postheats);
