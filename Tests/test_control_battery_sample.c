@@ -14,6 +14,7 @@ void tearDown(void) {}
 static void test_deenergize_all_clears_outputs_and_status(void) {
     ctx.out.fuel_pump = true; ctx.out.starter = true; ctx.out.glow_plug = true;
     ctx.out.compressor_clutch = true; ctx.out.heat_reverse = true; ctx.out.evap_fan = true;
+    ctx.out.condenser_fan = true; ctx.out.condenser_duty = 1000;
     ctx.cool_mode = true; ctx.engine_op_status = ST_RUNNING; ctx.control_status = ST_CHARGING;
     control_deenergize_all(&ctx);
     TEST_ASSERT_FALSE(ctx.out.fuel_pump);
@@ -22,6 +23,8 @@ static void test_deenergize_all_clears_outputs_and_status(void) {
     TEST_ASSERT_FALSE(ctx.out.compressor_clutch);
     TEST_ASSERT_FALSE(ctx.out.heat_reverse);
     TEST_ASSERT_FALSE(ctx.out.evap_fan);
+    TEST_ASSERT_FALSE(ctx.out.condenser_fan);
+    TEST_ASSERT_EQUAL_UINT16(0, ctx.out.condenser_duty);
     TEST_ASSERT_FALSE(ctx.cool_mode);
     TEST_ASSERT_EQUAL_UINT8(ST_OFF, ctx.engine_op_status);
     TEST_ASSERT_EQUAL_UINT8(ST_OFF, ctx.control_status);

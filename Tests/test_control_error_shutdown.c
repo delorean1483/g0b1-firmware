@@ -8,6 +8,7 @@ void tearDown(void) {}
 static void set_all_outputs_on(apu_ctx_t *c) {
     c->out.fuel_pump = true; c->out.starter = true; c->out.glow_plug = true;
     c->out.compressor_clutch = true; c->out.evap_fan = true; c->cool_mode = true;
+    c->out.condenser_fan = true; c->out.condenser_duty = 1000;
 }
 
 static void test_err_none_goes_off(void) {
@@ -23,6 +24,7 @@ static void test_low_oil_deenergizes(void) {
     TEST_ASSERT_FALSE(ctx.out.fuel_pump);
     TEST_ASSERT_FALSE(ctx.out.compressor_clutch);
     TEST_ASSERT_FALSE(ctx.out.evap_fan);
+    TEST_ASSERT_FALSE(ctx.out.condenser_fan);
     TEST_ASSERT_EQUAL_INT(OP_ERROR_SHUTDOWN, ctx.op_state);  /* latches */
 }
 
