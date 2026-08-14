@@ -58,6 +58,41 @@ static void test_oil_dismissed_reloads_timer_past_due(void) {
     TEST_ASSERT_EQUAL_UINT16(300, app_timer_get(SCALE_MINUTE, NEXT_OIL_WARNING_TMR));
 }
 
+static void test_machine_accumulates_without_fuel(void) {
+    ctx.out.fuel_pump = false; ctx.machine_run_min = 59;
+    nvm_write_word(MACHINE_RUNTIME_START, 10);
+    control_service_runtime(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(0, ctx.machine_run_min);                  /* rolled over */
+    TEST_ASSERT_EQUAL_UINT16(11, nvm_read_word(MACHINE_RUNTIME_START));
+    TEST_ASSERT_EQUAL_UINT8(0, ctx.engine_run_min);                   /* engine untouched (no fuel) */
+}
+
+static void test_engine_and_oil_accumulate_with_fuel(void) {
+    ctx.out.fuel_pump = true; ctx.engine_run_min = 59; ctx.engine_oil_min = 59;
+    nvm_write_word(ENGINE_RUNTIME_START, 20);
+    nvm_write_word(ENGINE_OILTIME_START, 100);                        /* < 500 -> OIL_GOOD after check */
+    control_service_runtime(&ctx);
+    TEST_ASSERT_EQUAL_UINT16(21, nvm_read_word(ENGINE_RUNTIME_START));
+    TEST_ASSERT_EQUAL_UINT16(101, nvm_read_word(ENGINE_OILTIME_START));
+    TEST_ASSERT_EQUAL_UINT8(0, ctx.engine_oil_min);
+    TEST_ASSERT_EQUAL_UINT8(OIL_GOOD, ctx.oil_change_state);          /* oil check ran */
+}
+
+static void test_engine_min_increments_no_rollover(void) {
+    ctx.out.fuel_pump = true; ctx.engine_run_min = 5;
+    nvm_write_word(ENGINE_RUNTIME_START, 20);
+    control_service_runtime(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(6, ctx.engine_run_min);
+    TEST_ASSERT_EQUAL_UINT16(20, nvm_read_word(ENGINE_RUNTIME_START)); /* no bump yet */
+}
+
+static void test_hour_bump_saturates_at_65535(void) {
+    ctx.machine_run_min = 59;
+    nvm_write_word(MACHINE_RUNTIME_START, 65535);
+    control_service_runtime(&ctx);
+    TEST_ASSERT_EQUAL_UINT16(65535, nvm_read_word(MACHINE_RUNTIME_START)); /* no wrap */
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_oil_good_below_500);
@@ -67,5 +102,9 @@ int main(void) {
     RUN_TEST(test_oil_timer_running_holds_state);
     RUN_TEST(test_oil_dismissed_reloads_timer_soon);
     RUN_TEST(test_oil_dismissed_reloads_timer_past_due);
+    RUN_TEST(test_machine_accumulates_without_fuel);
+    RUN_TEST(test_engine_and_oil_accumulate_with_fuel);
+    RUN_TEST(test_engine_min_increments_no_rollover);
+    RUN_TEST(test_hour_bump_saturates_at_65535);
     return UNITY_END();
 }
