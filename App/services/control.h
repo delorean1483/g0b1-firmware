@@ -55,6 +55,16 @@ typedef struct {
     uint8_t  ext_temp_sensor_state;    /* SENSOR_ON/OFF from M3 */
     bool     engine_temp_ok;           /* false => over-temp fault (sensor derivation deferred; default true) */
     bool     standby_override;         /* Modbus reg 32; when true, suppress standby shutdown */
+    /* --- M6c climate --- */
+    int16_t  cabin_temperature;        /* degF, from M3 enclosure sensor (reg 1) */
+    int16_t  clmt_temp_setting;        /* degF, from NVM EE_CLIMATE_TEMP_SETTING (reg 14) */
+    uint8_t  evap_fan_speed;           /* fan_speed_t, from NVM EE_EVAP_FAN_SPEED (reg 12) */
+    uint8_t  compressor_on_timer;      /* seconds compressor ON (count-up, cap 255) */
+    uint8_t  compressor_off_timer;     /* seconds compressor OFF (count-up, cap 255) */
+    uint8_t  refregerant_check_counter;/* A/C low-pressure retry counter */
+    bool     ac_low_pressure_ok;       /* A/C low side OK (derivation deferred; default true) */
+    bool     ac_high_pressure_ok;      /* A/C high side OK (derivation deferred; default true) */
+    bool     cool_mode;                /* cooling selected (PIC COOL_MODE_STATE) */
 } apu_ctx_t;
 
 typedef void (*control_mode_fn)(apu_ctx_t *ctx);

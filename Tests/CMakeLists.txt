@@ -73,3 +73,4 @@ add_unity_test(test_control_engine_start_integration test_control_engine_start_i
     ../App/services/sched.c ../App/services/app_timers.c ../App/services/io_debounce.c
     ../App/services/bsp_io.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c
     ../App/services/sensors.c ../App/services/mb_regmodel.c fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c)
+add_unity_test(test_control_ctx_cc test_control_ctx_cc.c ../App/services/control.c ../App/services/fan_speed.c)

@@ -24,6 +24,15 @@ void control_init(apu_ctx_t *ctx) {
     ctx->ext_temp_sensor_state = 0;
     ctx->engine_temp_ok = true;
     ctx->standby_override = false;
+    ctx->cabin_temperature = 0;
+    ctx->clmt_temp_setting = 0;
+    ctx->evap_fan_speed = FAN_HIGH;
+    ctx->compressor_on_timer = 0;
+    ctx->compressor_off_timer = 0;
+    ctx->refregerant_check_counter = 0;
+    ctx->ac_low_pressure_ok = true;
+    ctx->ac_high_pressure_ok = true;
+    ctx->cool_mode = false;
 }
 
 void control_register_mode(control_op_state_t st, control_mode_fn fn) {
