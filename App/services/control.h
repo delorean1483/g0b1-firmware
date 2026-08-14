@@ -67,6 +67,7 @@ void control_powerup_mode(apu_ctx_t *ctx);   /* register for OP_POWER_UP */
 void control_off_mode(apu_ctx_t *ctx);   /* register for OP_OFF */
 void control_inputs_init(apu_ctx_t *ctx);
 void control_inputs_service(apu_ctx_t *ctx);
+void control_sample_sensors(apu_ctx_t *ctx);
 void control_regs_register(apu_ctx_t *ctx);
 
 /* app-global control context and wiring */
