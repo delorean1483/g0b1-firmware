@@ -76,6 +76,7 @@ void outputs_apply(const apu_ctx_t *ctx);
 void control_powerup_mode(apu_ctx_t *ctx);   /* register for OP_POWER_UP */
 void control_off_mode(apu_ctx_t *ctx);   /* register for OP_OFF */
 void control_engine_start_mode(apu_ctx_t *ctx);   /* register for OP_ENGINE_START */
+void control_climate_mode(apu_ctx_t *ctx);   /* register for OP_CLIMATE */
 void control_inputs_init(apu_ctx_t *ctx);
 void control_inputs_service(apu_ctx_t *ctx);
 void control_sample_sensors(apu_ctx_t *ctx);
