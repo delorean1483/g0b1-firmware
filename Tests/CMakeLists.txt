@@ -100,3 +100,4 @@ add_unity_test(test_control_battery_integration test_control_battery_integration
     ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c
     fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c fakes/fake_nor.c)
 add_unity_test(test_control_ctx_rt test_control_ctx_rt.c ../App/services/control.c ../App/services/fan_speed.c)
+add_unity_test(test_control_reg18 test_control_reg18.c ../App/services/control_io.c ../App/services/control.c ../App/services/mb_regmodel.c ../App/services/fan_speed.c ../App/services/bsp_io.c ../App/services/io_debounce.c fakes/fake_bsp_io.c)

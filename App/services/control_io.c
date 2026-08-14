@@ -27,6 +27,7 @@ static modbus_exc_t rd_mode(uint16_t r, uint16_t *o)  { (void)r; *o = s_ctx->mod
 static modbus_exc_t wr_mode(uint16_t r, uint16_t v)   { (void)r; if (v > MODE_BATTERY) return MB_EXC_ILLEGAL_VALUE; s_ctx->mode_request = (uint8_t)v; return MB_EXC_NONE; }
 static modbus_exc_t rd_err(uint16_t r, uint16_t *o)   { (void)r; *o = s_ctx->error_state;         return MB_EXC_NONE; }
 static modbus_exc_t rd_oilc(uint16_t r, uint16_t *o)  { (void)r; *o = s_ctx->oil_change_state;    return MB_EXC_NONE; }
+static modbus_exc_t wr_oilc(uint16_t r, uint16_t v)   { (void)r; if (v > OIL_WARNING_DISMISSED) return MB_EXC_ILLEGAL_VALUE; s_ctx->oil_change_state = (uint8_t)v; return MB_EXC_NONE; }
 static modbus_exc_t rd_eng(uint16_t r, uint16_t *o)   { (void)r; *o = s_ctx->engine_op_status;    return MB_EXC_NONE; }
 static modbus_exc_t rd_ctrl(uint16_t r, uint16_t *o)  { (void)r; *o = s_ctx->control_status;      return MB_EXC_NONE; }
 static modbus_exc_t rd_td(uint16_t r, uint16_t *o)    { (void)r; *o = s_ctx->temp_display_state;  return MB_EXC_NONE; }
@@ -40,7 +41,7 @@ void control_regs_register(apu_ctx_t *ctx) {
     mb_reg_bind(8,  rd_ign,  0);
     mb_reg_bind(10, rd_mode, wr_mode);
     mb_reg_bind(17, rd_err,  0);
-    mb_reg_bind(18, rd_oilc, 0);
+    mb_reg_bind(18, rd_oilc, wr_oilc);
     mb_reg_bind(22, rd_eng,  0);
     mb_reg_bind(23, rd_ctrl, 0);
     mb_reg_bind(32, rd_standby, wr_standby);
