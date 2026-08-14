@@ -28,3 +28,7 @@ void control_1s_slot(void) {
     control_climate_sample_settings(&s_ctx);
     control_battery_sample_settings(&s_ctx);
 }
+
+void control_1min_slot(void) {
+    control_service_runtime(&s_ctx);
+}

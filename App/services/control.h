@@ -104,6 +104,7 @@ void       control_10ms_slot(void);
 void       control_service_compressor_timers(apu_ctx_t *ctx);
 void       control_climate_sample_settings(apu_ctx_t *ctx);
 void       control_1s_slot(void);
+void       control_1min_slot(void);
 void       control_oil_change_check(apu_ctx_t *ctx);
 void       control_service_runtime(apu_ctx_t *ctx);
 
