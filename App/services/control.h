@@ -85,6 +85,7 @@ void control_off_mode(apu_ctx_t *ctx);   /* register for OP_OFF */
 void control_engine_start_mode(apu_ctx_t *ctx);   /* register for OP_ENGINE_START */
 void control_climate_mode(apu_ctx_t *ctx);   /* register for OP_CLIMATE */
 void control_battery_mode(apu_ctx_t *ctx);   /* register for OP_BATTERY */
+void control_error_shutdown_mode(apu_ctx_t *ctx);   /* register for OP_ERROR_SHUTDOWN */
 void control_inputs_init(apu_ctx_t *ctx);
 void control_inputs_service(apu_ctx_t *ctx);
 void control_sample_sensors(apu_ctx_t *ctx);
