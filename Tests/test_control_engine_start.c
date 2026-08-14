@@ -89,6 +89,55 @@ static void test_check_pressure_oil_low_5th_attempt_fails(void) {
     TEST_ASSERT_EQUAL_UINT8(0, ctx.attempted_start_counter);
 }
 
+static void test_cool_on_handoff_climate(void) {
+    ctx.sub_state = 6 /*ES_COOL_ON*/; ctx.op_state_previous = OP_CLIMATE;
+    /* SHORT_DELAY_TMR == 0 */
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_EQUAL_INT(OP_CLIMATE, ctx.op_state);
+    TEST_ASSERT_EQUAL_UINT8(2, ctx.sub_state);         /* CC_MONITOR_TEMP */
+    TEST_ASSERT_EQUAL_UINT8(ST_COOLING, ctx.control_status);
+}
+
+static void test_cool_on_handoff_battery(void) {
+    ctx.sub_state = 6; ctx.op_state_previous = OP_BATTERY;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_EQUAL_INT(OP_BATTERY, ctx.op_state);
+    TEST_ASSERT_EQUAL_UINT8(3, ctx.sub_state);         /* BM_CHARGING */
+}
+
+static void test_cool_on_monitor_oil_low_shuts_down(void) {
+    ctx.sub_state = 6; ctx.op_state_previous = OP_CLIMATE;
+    app_timer_set(SCALE_TEN_MS, SHORT_DELAY_TMR, 5);   /* non-zero -> monitor branch */
+    ctx.in_oil_pressure_ok = false;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(ERR_LOW_OIL, ctx.error_state);
+    TEST_ASSERT_EQUAL_INT(OP_ERROR_SHUTDOWN, ctx.op_state);
+}
+
+static void test_cool_on_monitor_over_temp_shuts_down(void) {
+    ctx.sub_state = 6; ctx.op_state_previous = OP_CLIMATE;
+    app_timer_set(SCALE_TEN_MS, SHORT_DELAY_TMR, 5);
+    ctx.in_oil_pressure_ok = true; ctx.engine_temp_ok = false;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(ERR_HIGH_ENGINE_TEMP, ctx.error_state);
+    TEST_ASSERT_EQUAL_INT(OP_ERROR_SHUTDOWN, ctx.op_state);
+}
+
+static void test_standby_shutdown_when_truck_running(void) {
+    ctx.sub_state = 0 /*any state*/; ctx.standby_override = false; ctx.in_truck_ignition = true;
+    ctx.attempted_start_counter = 3;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(ERR_STANDBY, ctx.error_state);
+    TEST_ASSERT_EQUAL_INT(OP_ERROR_SHUTDOWN, ctx.op_state);
+    TEST_ASSERT_EQUAL_UINT8(0, ctx.attempted_start_counter);
+}
+
+static void test_standby_suppressed_by_override(void) {
+    ctx.sub_state = 0; ctx.standby_override = true; ctx.in_truck_ignition = true;
+    control_engine_start_mode(&ctx);
+    TEST_ASSERT_NOT_EQUAL_INT(OP_ERROR_SHUTDOWN, ctx.op_state); /* override suppresses standby */
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_glow_duration_by_temp);
@@ -100,5 +149,11 @@ int main(void) {
     RUN_TEST(test_check_pressure_oil_ok_runs);
     RUN_TEST(test_check_pressure_oil_low_retry);
     RUN_TEST(test_check_pressure_oil_low_5th_attempt_fails);
+    RUN_TEST(test_cool_on_handoff_climate);
+    RUN_TEST(test_cool_on_handoff_battery);
+    RUN_TEST(test_cool_on_monitor_oil_low_shuts_down);
+    RUN_TEST(test_cool_on_monitor_over_temp_shuts_down);
+    RUN_TEST(test_standby_shutdown_when_truck_running);
+    RUN_TEST(test_standby_suppressed_by_override);
     return UNITY_END();
 }

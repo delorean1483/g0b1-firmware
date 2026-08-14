@@ -83,7 +83,34 @@ void control_engine_start_mode(apu_ctx_t *ctx) {
                 }
             }
             break;
+        case ES_COOL_ON:
+            if (app_timer_expired(SCALE_TEN_MS, SHORT_DELAY_TMR)) {
+                if (ctx->op_state_previous == OP_CLIMATE) {
+                    ctx->op_state = OP_CLIMATE;
+                    ctx->control_status = ST_COOLING;
+                    ctx->sub_state = 2;             /* CC_MONITOR_TEMP */
+                } else if (ctx->op_state_previous == OP_BATTERY) {
+                    ctx->op_state = OP_BATTERY;
+                    ctx->sub_state = 3;             /* BM_CHARGING */
+                }
+            } else {
+                if (!ctx->in_oil_pressure_ok) {
+                    ctx->error_state = ERR_LOW_OIL;
+                    ctx->op_state = OP_ERROR_SHUTDOWN;
+                }
+                if (!ctx->engine_temp_ok) {
+                    ctx->error_state = ERR_HIGH_ENGINE_TEMP;
+                    ctx->op_state = OP_ERROR_SHUTDOWN;
+                }
+            }
+            break;
         default:
             break;
+    }
+    /* Standby: APU must not run while the truck engine is on (unless overridden). */
+    if (!ctx->standby_override && ctx->in_truck_ignition) {
+        ctx->attempted_start_counter = 0;
+        ctx->error_state = ERR_STANDBY;
+        ctx->op_state = OP_ERROR_SHUTDOWN;
     }
 }
