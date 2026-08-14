@@ -25,9 +25,16 @@ static void test_reg32_standby_override_rw(void) {
     TEST_ASSERT_FALSE(ctx.standby_override);
 }
 
+static void test_sample_copies_cabin_temp(void) {
+    for (int i = 0; i < SENS_AVG_DEFAULT; i++) sensors_add_sample(SENS_ENCL, 2048); /* ~25C midscale */
+    control_sample_sensors(&ctx);
+    TEST_ASSERT_EQUAL_INT16(sensors_get_encl_temp_f(), ctx.cabin_temperature);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_sample_copies_ext_temp_and_state);
     RUN_TEST(test_reg32_standby_override_rw);
+    RUN_TEST(test_sample_copies_cabin_temp);
     return UNITY_END();
 }

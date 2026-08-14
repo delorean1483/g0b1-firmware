@@ -85,5 +85,8 @@ void control_regs_register(apu_ctx_t *ctx);
 apu_ctx_t *control_app_ctx(void);
 void       control_app_init(void);
 void       control_10ms_slot(void);
+void       control_service_compressor_timers(apu_ctx_t *ctx);
+void       control_climate_sample_settings(apu_ctx_t *ctx);
+void       control_1s_slot(void);
 
 #endif /* CONTROL_H */
