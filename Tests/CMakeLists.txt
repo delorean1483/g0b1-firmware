@@ -85,3 +85,4 @@ add_unity_test(test_control_climate_integration test_control_climate_integration
     ../App/services/sensors.c ../App/services/mb_regmodel.c
     ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c
     fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c fakes/fake_nor.c)
+add_unity_test(test_control_ctx_bm test_control_ctx_bm.c ../App/services/control.c ../App/services/fan_speed.c)

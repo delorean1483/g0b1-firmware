@@ -19,7 +19,10 @@ typedef enum { MODE_OFF = 0, MODE_CLIMATE, MODE_BATTERY } op_mode_t;
 
 typedef enum {
     ERR_NONE = 0, ERR_LOW_OIL, ERR_HIGH_ENGINE_TEMP, ERR_LOW_BATTERY,
-    ERR_AC_LOW_PRESSURE, ERR_AC_HIGH_PRESSURE, ERR_STARTING_FAILURE, ERR_STANDBY
+    ERR_AC_LOW_PRESSURE, ERR_AC_HIGH_PRESSURE, ERR_STARTING_FAILURE, ERR_STANDBY,
+    ERR_ENGINE_STALLED,        /* 8  — low RPM detected (log only) */
+    ERR_NO_RPM_DETECTED,       /* 9  — no RPM detected */
+    ERR_HIGH_AC_PRESSURE       /* 10 — PIC HIGH_AC_PRESSURE_ERROR (record-only; != ERR_AC_HIGH_PRESSURE=5) */
 } control_error_t;
 
 typedef enum {
@@ -65,6 +68,10 @@ typedef struct {
     bool     ac_low_pressure_ok;       /* A/C low side OK (derivation deferred; default true) */
     bool     ac_high_pressure_ok;      /* A/C high side OK (derivation deferred; default true) */
     bool     cool_mode;                /* cooling selected (PIC COOL_MODE_STATE) */
+    /* --- M6d battery + error --- */
+    uint8_t  attempted_charging_counter; /* battery charge attempts this cycle */
+    uint16_t battery_voltage;            /* centivolts, from M3 sensors (reg 6) */
+    uint16_t batt_monitor_setting;       /* centivolts, from NVM EE_MONITOR_BATT_SETTING (reg 13) */
 } apu_ctx_t;
 
 typedef void (*control_mode_fn)(apu_ctx_t *ctx);

@@ -33,6 +33,9 @@ void control_init(apu_ctx_t *ctx) {
     ctx->ac_low_pressure_ok = true;
     ctx->ac_high_pressure_ok = true;
     ctx->cool_mode = false;
+    ctx->attempted_charging_counter = 0;
+    ctx->battery_voltage = 0;
+    ctx->batt_monitor_setting = 0;
 }
 
 void control_register_mode(control_op_state_t st, control_mode_fn fn) {
