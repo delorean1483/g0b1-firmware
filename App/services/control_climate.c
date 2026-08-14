@@ -59,6 +59,57 @@ void control_climate_mode(apu_ctx_t *ctx) {
                 ctx->sub_state = CC_START_COOL;
             }
             break;
+        case CC_START_COOL:
+            ctx->cool_mode = true;
+            ctx->out.heat_reverse = false;                  /* cool = PB4 de-energized (OI-1) */
+            ctx->sub_state = CC_COMP_ON;
+            break;
+        case CC_COMP_ON:
+            if (ctx->compressor_off_timer >= 15u) {
+                ctx->out.compressor_clutch = true;
+                app_timer_set(SCALE_SECOND, COMP_EVAP_DELAY_TMR, 0);
+                ctx->sub_state = CC_EVAP_ON;
+            }
+            break;
+        case CC_EVAP_ON:
+            if (app_timer_expired(SCALE_SECOND, COMP_EVAP_DELAY_TMR)) {
+                ctx->out.evap_fan = true;
+                ctx->out.evap_speed = (fan_speed_t)ctx->evap_fan_speed;
+                app_timer_set(SCALE_SECOND, EVAP_FORCED_ON_TMR, 10);
+                app_timer_set(SCALE_MINUTE, DEFROST_CYCLE_TMR, 30);
+                ctx->sub_state = CC_CTRL_RUNNING;
+            }
+            break;
+        case CC_CTRL_RUNNING:
+            if (app_timer_get(SCALE_MINUTE, DEFROST_CYCLE_TMR) > 0u) {
+                if (ctx->cool_mode &&
+                    ctx->cabin_temperature <= (ctx->clmt_temp_setting + 1)) {
+                    ctx->out.compressor_clutch = false;
+                    ctx->temp_display_state = TD_CC_SETTING;
+                    ctx->sub_state = CC_EVAP_OFF;
+                }
+            } else {                                        /* defrost cycle */
+                ctx->control_status = ST_DEFROST;
+                ctx->temp_display_state = TD_REAL_TIME;
+                if (ctx->cool_mode) {
+                    ctx->out.compressor_clutch = false;
+                    ctx->cool_mode = false;
+                    ctx->out.evap_fan = false;
+                    app_timer_set(SCALE_SECOND, EVENT_INTERVAL_TMR, 45);
+                    ctx->sub_state = CC_COOL_DEFROST_END;
+                }
+            }
+            break;
+        case CC_EVAP_OFF:
+            if (ctx->compressor_off_timer >= 15u) {
+                ctx->cool_mode = false;
+                ctx->out.evap_fan = false;
+                ctx->sub_state = CC_MONITOR_TEMP;
+            } else if (ctx->cabin_temperature <= (ctx->clmt_temp_setting - CC_TEMP_OFFSET)) {
+                ctx->temp_display_state = TD_REAL_TIME;
+                ctx->cool_mode = false;
+            }
+            break;
         default:
             break;
     }
