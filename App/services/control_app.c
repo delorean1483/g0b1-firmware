@@ -24,4 +24,5 @@ void control_10ms_slot(void) {
 void control_1s_slot(void) {
     control_service_compressor_timers(&s_ctx);
     control_climate_sample_settings(&s_ctx);
+    control_battery_sample_settings(&s_ctx);
 }

@@ -88,6 +88,8 @@ void control_inputs_init(apu_ctx_t *ctx);
 void control_inputs_service(apu_ctx_t *ctx);
 void control_sample_sensors(apu_ctx_t *ctx);
 void control_regs_register(apu_ctx_t *ctx);
+void control_deenergize_all(apu_ctx_t *ctx);
+void control_battery_sample_settings(apu_ctx_t *ctx);
 
 /* app-global control context and wiring */
 apu_ctx_t *control_app_ctx(void);

@@ -38,6 +38,13 @@ void control_init(apu_ctx_t *ctx) {
     ctx->batt_monitor_setting = 0;
 }
 
+void control_deenergize_all(apu_ctx_t *ctx) {
+    ctx->out.fuel_pump = false;  ctx->out.starter = false;  ctx->out.glow_plug = false;
+    ctx->out.compressor_clutch = false;  ctx->out.heat_reverse = false;  ctx->out.evap_fan = false;
+    ctx->cool_mode = false;
+    ctx->engine_op_status = ST_OFF;  ctx->control_status = ST_OFF;
+}
+
 void control_register_mode(control_op_state_t st, control_mode_fn fn) {
     if (st < OP_STATE_COUNT) s_mode[st] = fn;
 }
