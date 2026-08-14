@@ -19,7 +19,7 @@ typedef enum { MODE_OFF = 0, MODE_CLIMATE, MODE_BATTERY } op_mode_t;
 
 typedef enum {
     ERR_NONE = 0, ERR_LOW_OIL, ERR_HIGH_ENGINE_TEMP, ERR_LOW_BATTERY,
-    ERR_AC_LOW_PRESSURE, ERR_AC_HIGH_PRESSURE, ERR_STARTING_FAILURE
+    ERR_AC_LOW_PRESSURE, ERR_AC_HIGH_PRESSURE, ERR_STARTING_FAILURE, ERR_STANDBY
 } control_error_t;
 
 typedef enum {
@@ -48,6 +48,13 @@ typedef struct {
     bool               in_oil_pressure_ok;/* debounced oil pressure */
     bool               in_truck_ignition; /* debounced truck ignition */
     bool               evap_fan_always_on;/* flag2 equivalent */
+    /* --- M6b engine-start --- */
+    uint8_t  op_state_previous;        /* control_op_state_t: mode that invoked engine start */
+    uint8_t  attempted_start_counter;  /* start attempts this cycle */
+    int16_t  external_temperature;     /* degF, from M3 sensors (glow-plug timing) */
+    uint8_t  ext_temp_sensor_state;    /* SENSOR_ON/OFF from M3 */
+    bool     engine_temp_ok;           /* false => over-temp fault (sensor derivation deferred; default true) */
+    bool     standby_override;         /* Modbus reg 32; when true, suppress standby shutdown */
 } apu_ctx_t;
 
 typedef void (*control_mode_fn)(apu_ctx_t *ctx);

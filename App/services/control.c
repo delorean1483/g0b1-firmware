@@ -18,6 +18,12 @@ void control_init(apu_ctx_t *ctx) {
     ctx->in_oil_pressure_ok = false;
     ctx->in_truck_ignition = false;
     ctx->evap_fan_always_on = false;
+    ctx->op_state_previous = OP_OFF;
+    ctx->attempted_start_counter = 0;
+    ctx->external_temperature = 0;
+    ctx->ext_temp_sensor_state = 0;
+    ctx->engine_temp_ok = true;
+    ctx->standby_override = false;
 }
 
 void control_register_mode(control_op_state_t st, control_mode_fn fn) {
