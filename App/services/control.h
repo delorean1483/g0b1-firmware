@@ -72,6 +72,10 @@ typedef struct {
     uint8_t  attempted_charging_counter; /* battery charge attempts this cycle */
     uint16_t battery_voltage;            /* centivolts, from M3 sensors (reg 6) */
     uint16_t batt_monitor_setting;       /* centivolts, from NVM EE_MONITOR_BATT_SETTING (reg 13) */
+    /* --- M6e runtime hours --- */
+    uint8_t  machine_run_min;          /* minutes since last machine-hour rollover */
+    uint8_t  engine_run_min;           /* minutes since last engine-hour rollover (fuel on) */
+    uint8_t  engine_oil_min;           /* minutes since last oil-hour rollover (fuel on) */
 } apu_ctx_t;
 
 typedef void (*control_mode_fn)(apu_ctx_t *ctx);

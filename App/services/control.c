@@ -36,6 +36,9 @@ void control_init(apu_ctx_t *ctx) {
     ctx->attempted_charging_counter = 0;
     ctx->battery_voltage = 0;
     ctx->batt_monitor_setting = 0;
+    ctx->machine_run_min = 0;
+    ctx->engine_run_min = 0;
+    ctx->engine_oil_min = 0;
 }
 
 void control_deenergize_all(apu_ctx_t *ctx) {
