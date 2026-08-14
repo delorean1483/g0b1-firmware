@@ -1,8 +1,9 @@
 #include "unity.h"
 #include "control.h"
+#include <string.h>
 
 static apu_ctx_t ctx;
-void setUp(void) { control_init(&ctx); }
+void setUp(void) { memset(&ctx, 0xFF, sizeof(ctx)); control_init(&ctx); }
 void tearDown(void) {}
 
 static void test_err_codes_8_9_10(void) {
