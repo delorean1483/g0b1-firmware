@@ -1,7 +1,14 @@
 #include "sched.h"
 #include "app_timers.h"
 
-static uint32_t s_ms;                       /* monotonic millisecond counter */
+/* Re-phase period: the LCM of every slot period (10/50/100/1000/5000/60000 ms)
+   is exactly 60000, so bounding s_ms to [0, 60000) preserves the phase of all
+   slots while preventing the free-running counter from ever reaching the 32-bit
+   wrap (which fired all six slots at once at ~49.7-day uptime). MUST remain a
+   common multiple of every slot period if a new slot is added. */
+#define SCHED_REPHASE_MS 60000u
+
+static uint32_t s_ms;                       /* millisecond counter, bounded to [0, SCHED_REPHASE_MS) */
 static bool     s_due[SLOT_COUNT];
 static sched_handler_fn s_handler[SLOT_COUNT];
 
@@ -18,6 +25,7 @@ void sched_register(sched_slot_t slot, sched_handler_fn h) {
 void sched_service(uint16_t elapsed_ms) {
     for (uint16_t k = 0; k < elapsed_ms; k++) {
         s_ms++;
+        if (s_ms >= SCHED_REPHASE_MS) s_ms = 0u;               /* re-phase at the LCM; the s_ms==0 tick IS the 1-min boundary */
         app_timers_tick(SCALE_MS);                             /* every 1 ms */
         if (s_ms % 10u   == 0u) { s_due[SLOT_10MS]  = true; app_timers_tick(SCALE_TEN_MS); }
         if (s_ms % 50u   == 0u) { s_due[SLOT_50MS]  = true; }
@@ -38,3 +46,4 @@ void sched_run(void) {
 }
 
 bool sched_slot_due(sched_slot_t slot) { return (slot < SLOT_COUNT) ? s_due[slot] : false; }
+uint32_t sched_now_ms(void) { return s_ms; }

@@ -10,5 +10,6 @@ void sched_register(sched_slot_t slot, sched_handler_fn h);
 void sched_service(uint16_t elapsed_ms);                /* advance the clock */
 void sched_run(void);                                   /* dispatch due slots to handlers */
 bool sched_slot_due(sched_slot_t slot);                 /* test hook */
+uint32_t sched_now_ms(void);                            /* test hook: current re-phased ms counter */
 
 #endif /* SCHED_H */

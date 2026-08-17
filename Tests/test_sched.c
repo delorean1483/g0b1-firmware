@@ -63,6 +63,28 @@ static void test_unregistered_slot_is_safe(void) {
     TEST_ASSERT_TRUE(true);
 }
 
+/* Bug: s_ms was a free-running uint32 that wraps at 2^32. Because 2^32 is not a
+   multiple of any slot period and 0 % anything == 0, the wrap tick fired all six
+   slots at once (~49.7-day uptime glitch). The fix re-phases s_ms at 60000 ms
+   (the LCM of all slot periods) so the counter can never approach 2^32. Reaching
+   2^32 in a test is impractical, so this pins the root-cause invariant: the
+   counter stays bounded. */
+static void test_ms_counter_rephases_no_32bit_wrap(void) {
+    for (uint32_t t = 0; t < 130000u; t += 10u) { sched_service(10); sched_run(); }
+    TEST_ASSERT_LESS_THAN_UINT32(60000u, sched_now_ms());
+}
+
+/* The re-phase must not disturb slot cadence across the 60000 ms boundary: after
+   two full minutes the counts must be exact (a re-phase value that isn't a common
+   multiple of every period would shift the boundaries). */
+static void test_cadence_preserved_across_rephase(void) {
+    for (uint32_t t = 0; t < 120000u; t += 10u) { sched_service(10); sched_run(); }
+    TEST_ASSERT_EQUAL_UINT32(2,     s_calls[SLOT_1MIN]);
+    TEST_ASSERT_EQUAL_UINT32(120,   s_calls[SLOT_1S]);
+    TEST_ASSERT_EQUAL_UINT32(24,    s_calls[SLOT_5S]);
+    TEST_ASSERT_EQUAL_UINT32(12000, s_calls[SLOT_10MS]);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_10ms_slot_fires_each_10ms);
@@ -70,5 +92,7 @@ int main(void) {
     RUN_TEST(test_scheduler_ticks_timer_scales);
     RUN_TEST(test_due_flag_collapses_but_timer_accurate_under_jitter);
     RUN_TEST(test_unregistered_slot_is_safe);
+    RUN_TEST(test_ms_counter_rephases_no_32bit_wrap);
+    RUN_TEST(test_cadence_preserved_across_rephase);
     return UNITY_END();
 }
