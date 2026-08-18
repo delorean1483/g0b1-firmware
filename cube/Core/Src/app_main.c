@@ -20,6 +20,8 @@
 #include "mbp_sensors.h"     /* portable sensors Modbus provider (regs 1/3/6/38/51) */
 #include "drv_modbus_uart.h" /* Task 5: USART1 RS-485 RTU transport */
 
+extern IWDG_HandleTypeDef hiwdg;  /* Task 10: CubeMX-generated (MX_IWDG_Init, ~2 s) */
+
 /* -------------------------------------------------------------------------
  * Task 2 — SysTick -> cooperative scheduler superloop.
  *
@@ -46,8 +48,22 @@ static void on_1s(void)
     g_sched_1s_ticks++;
 }
 
+/* Task 10 — reg-34 reset action: full MCU reset via the Cortex-M0+ AIRCR.
+ * Registered with mbp_sys so a Modbus write to reg 34 reboots the board. */
+static void sys_reset(void)
+{
+    NVIC_SystemReset();   /* never returns */
+}
+
 void app_main(void)
 {
+    /* Task 10 — IWDG is already running (MX_IWDG_Init, ~2 s). In debug builds,
+     * halt it when the core is stopped so breakpoints at the bench don't trip a
+     * reset; production builds leave it free-running. */
+#ifdef DEBUG
+    __HAL_DBGMCU_FREEZE_IWDG();
+#endif
+
     /* Task 3 — relay/discrete-input backend up FIRST, then force every output
      * OFF before anything (scheduler, control, Modbus) can command an actuator.
      * The engine, starter, glow-plug and compressor must never be driven by a
@@ -96,7 +112,7 @@ void app_main(void)
      * lands in Task 10) is bindable now; nvm/rtc/sensor providers join as their
      * backends come online (Tasks 6-8). Then start reception. */
     mb_engine_init();
-    mbp_sys_register(NULL);           /* NULL reset fn: wr_reset no-ops until Task 10 */
+    mbp_sys_register(sys_reset);      /* Task 10: reg-34 write -> NVIC_SystemReset */
     mbp_nvm_register();               /* persisted regs (runtime hrs, settings, flags) */
     mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
     mbp_sensors_register(drv_rpm_source()); /* Task 8/9: temp/batt regs 1/3/6/51 + reg 38 live RPM */
@@ -118,5 +134,6 @@ void app_main(void)
             sched_run();         /* dispatch due slots to their handlers */
         }
         drv_modbus_uart_poll();  /* drain any assembled RTU frame -> engine -> DMA TX */
+        HAL_IWDG_Refresh(&hiwdg);/* Task 10: kick the watchdog once per superloop pass */
     }
 }

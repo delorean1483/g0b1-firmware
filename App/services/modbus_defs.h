@@ -16,7 +16,8 @@ typedef enum {
     MB_EXC_NONE             = 0,
     MB_EXC_ILLEGAL_FUNCTION = 1,
     MB_EXC_ILLEGAL_ADDRESS  = 2,
-    MB_EXC_ILLEGAL_VALUE    = 3
+    MB_EXC_ILLEGAL_VALUE    = 3,
+    MB_EXC_SLAVE_DEVICE_FAILURE = 4  /* 0x04: backend/persist failure (NVM commit) */
 } modbus_exc_t;
 
 /* PDU field offsets within the RTU frame. */

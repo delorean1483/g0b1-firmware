@@ -37,7 +37,7 @@ static modbus_exc_t wr_nvm(uint16_t reg, uint16_t v) {
     if (r->vmax != 0xFFFF && v > r->vmax) return MB_EXC_ILLEGAL_VALUE;
     if (r->is_byte) nvm_write_byte(r->addr, (uint8_t)v);
     else            nvm_write_word(r->addr, v);
-    nvm_commit();
+    if (nvm_commit() != 0) return MB_EXC_SLAVE_DEVICE_FAILURE;   /* persist failed -> tell the master */
     return MB_EXC_NONE;
 }
 
