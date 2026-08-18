@@ -18,6 +18,7 @@
 #include "mbp_nvm.h"         /* portable NVM Modbus provider (persisted regs) */
 #include "mbp_rtc.h"         /* portable RTC/calendar Modbus provider (regs 24-31/42-48/52) */
 #include "mbp_sensors.h"     /* portable sensors Modbus provider (regs 1/3/6/38/51) */
+#include "control.h"         /* Task 11: control app init + 10ms/1s/1min slots (App/services) */
 #include "drv_modbus_uart.h" /* Task 5: USART1 RS-485 RTU transport */
 
 extern IWDG_HandleTypeDef hiwdg;  /* Task 10: CubeMX-generated (MX_IWDG_Init, ~2 s) */
@@ -31,22 +32,10 @@ extern IWDG_HandleTypeDef hiwdg;  /* Task 10: CubeMX-generated (MX_IWDG_Init, ~2
  * the elapsed milliseconds to sched_service(), then dispatch due slots with
  * sched_run().
  *
- * Task-2 cadence proof (no MCU LED on this board): a SLOT_1S handler bumps a
- * global counter once per second. At the bench, put a watch on
- * `g_sched_1s_ticks` in the debugger -> it should advance ~1 per second,
- * confirming the SysTick-driven scheduler runs at the right cadence. (MCO on
- * PA8 still validates the 64 MHz clock from Task 1.)
- *
- * Task 3+ register the real control slots (control_10ms_slot / _1s_slot /
- * _1min_slot) here once their bsp/drv backends come online.
+ * Task 11 registers the real control slots below (control_10ms_slot /
+ * control_1s_slot / control_1min_slot). MCO on PA8 still validates the 64 MHz
+ * clock from Task 1.
  * ---------------------------------------------------------------------- */
-
-volatile uint32_t g_sched_1s_ticks = 0;   /* bench debug watch: ~1/sec */
-
-static void on_1s(void)
-{
-    g_sched_1s_ticks++;
-}
 
 /* Task 10 — reg-34 reset action: full MCU reset via the Cortex-M0+ AIRCR.
  * Registered with mbp_sys so a Modbus write to reg 34 reboots the board. */
@@ -107,20 +96,33 @@ void app_main(void)
 #endif
 
     /* Task 5 — RS-485 Modbus RTU slave. Bring the register engine up and register
-     * the providers whose backends already exist (bind order is irrelevant — the
-     * register model is a table). Only mbp_sys (fw-rev/boot-flag; reset callback
-     * lands in Task 10) is bindable now; nvm/rtc/sensor providers join as their
-     * backends come online (Tasks 6-8). Then start reception. */
+     * every provider (bind order is irrelevant — the register model is a table):
+     * sys (fw-rev/boot/reset), NVM (persisted settings), RTC, sensors. Control
+     * regs are bound by control_app_init() below; reception starts after. */
     mb_engine_init();
     mbp_sys_register(sys_reset);      /* Task 10: reg-34 write -> NVIC_SystemReset */
     mbp_nvm_register();               /* persisted regs (runtime hrs, settings, flags) */
     mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
     mbp_sensors_register(drv_rpm_source()); /* Task 8/9: temp/batt regs 1/3/6/51 + reg 38 live RPM */
+
+    /* Task 11 — control application: init the shared apu_ctx, register the six
+     * OP_* mode handlers, and bind the control registers (2,4,5,10,17,18,22,23,
+     * 32,33,49,50). Runs after mb_engine_init (reg table) and before RX starts,
+     * so every control register is bound before the master can query it. */
+    control_app_init();
+
     drv_modbus_uart_init();
 
     sched_init();                     /* clears scheduler state + app_timers_init() */
-    sched_register(SLOT_1S, on_1s);   /* temporary cadence probe (real control slots land in Task 11) */
-    sched_register(SLOT_100MS, drv_bsp_adc_drain); /* Task 8: push ADC counts -> sensors averager */
+    /* Task 11 — real control slots (replacing the Task-2 cadence probe):
+     *   10 ms : sample sensors + inputs -> control_tick -> outputs_apply
+     *   100 ms: drain ADC conversions into the sensors averager (Task 8)
+     *   1 s   : compressor timers + climate/battery NVM settings sample
+     *   1 min : runtime-hour accounting + oil-change checks */
+    sched_register(SLOT_10MS,  control_10ms_slot);
+    sched_register(SLOT_100MS, drv_bsp_adc_drain);
+    sched_register(SLOT_1S,    control_1s_slot);
+    sched_register(SLOT_1MIN,  control_1min_slot);
 
     uint32_t last = HAL_GetTick();
     for (;;)
