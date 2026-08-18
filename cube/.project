@@ -75,5 +75,30 @@
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_sys.c</locationURI>
 		</link>
+		<link>
+			<name>Core/Src/nor_page_split.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/nor_page_split.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/nvm.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/nvm.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/nvm_record.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/nvm_record.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/nvm_defaults.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/nvm_defaults.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/mbp_nvm.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_nvm.c</locationURI>
+		</link>
 	</linkedResources>
 </projectDescription>

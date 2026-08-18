@@ -63,6 +63,8 @@ void Error_Handler(void);
 #define STARTER_GPIO_Port GPIOC
 #define FUEL_PUMP_Pin GPIO_PIN_12
 #define FUEL_PUMP_GPIO_Port GPIOC
+#define NOR_CS_Pin GPIO_PIN_2
+#define NOR_CS_GPIO_Port GPIOC
 #define TRUCK_IGNITION_Pin GPIO_PIN_2
 #define TRUCK_IGNITION_GPIO_Port GPIOD
 #define OIL_PRESSURE_Pin GPIO_PIN_6
