@@ -5,6 +5,9 @@
 #include "drv_bsp_io.h"  /* Task 3: concrete STM32G0 GPIO backend for bsp_io */
 #include "bsp_pwm.h"     /* portable fan-PWM service (App/services) */
 #include "drv_bsp_pwm.h" /* Task 4: concrete STM32G0 TIM2 backend for bsp_pwm */
+#include "mb_engine.h"       /* portable Modbus RTU engine (App/services) */
+#include "mbp_sys.h"         /* portable system provider (fw-rev/reset regs) */
+#include "drv_modbus_uart.h" /* Task 5: USART1 RS-485 RTU transport */
 
 /* -------------------------------------------------------------------------
  * Task 2 — SysTick -> cooperative scheduler superloop.
@@ -54,6 +57,15 @@ void app_main(void)
     drv_bsp_io_bench_relay_walk();     /* bench Step 4: click each relay in turn */
 #endif
 
+    /* Task 5 — RS-485 Modbus RTU slave. Bring the register engine up and register
+     * the providers whose backends already exist (bind order is irrelevant — the
+     * register model is a table). Only mbp_sys (fw-rev/boot-flag; reset callback
+     * lands in Task 10) is bindable now; nvm/rtc/sensor providers join as their
+     * backends come online (Tasks 6-8). Then start reception. */
+    mb_engine_init();
+    mbp_sys_register(NULL);           /* NULL reset fn: wr_reset no-ops until Task 10 */
+    drv_modbus_uart_init();
+
     sched_init();                     /* clears scheduler state + app_timers_init() */
     sched_register(SLOT_1S, on_1s);   /* temporary cadence probe (real control slots land in Task 11) */
 
@@ -68,5 +80,6 @@ void app_main(void)
             sched_service(dt);   /* advance the 1 ms time base + set due flags */
             sched_run();         /* dispatch due slots to their handlers */
         }
+        drv_modbus_uart_poll();  /* drain any assembled RTU frame -> engine -> DMA TX */
     }
 }
