@@ -34,6 +34,11 @@ add_unity_test(test_sensors_battery test_sensors_battery.c ../App/services/senso
 add_unity_test(test_sensors_ext_temp test_sensors_ext_temp.c ../App/services/sensors.c)
 add_unity_test(test_sensors_encl_temp test_sensors_encl_temp.c ../App/services/sensors.c)
 add_unity_test(test_sensors_shadow test_sensors_shadow.c ../App/services/sensors.c)
+# Guard tests run under ASan+UBSan: the pre-guard code's divide-by-zero / OOB
+# index are quiet UB on ARM64, so the sanitizers are what make RED fail.
+add_unity_test(test_sensors_guard test_sensors_guard.c ../App/services/sensors.c)
+target_compile_options(test_sensors_guard PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all)
+target_link_options(test_sensors_guard PRIVATE -fsanitize=address,undefined)
 add_unity_test(test_rpm test_rpm.c ../App/services/rpm.c)
 add_unity_test(test_fake_i2c test_fake_i2c.c fakes/fake_i2c.c)
 add_unity_test(test_rtc_bcd test_rtc_bcd.c ../App/services/rtc.c)

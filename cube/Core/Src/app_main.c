@@ -9,10 +9,14 @@
 #include "drv_s25fl064.h" /* Task 6: concrete SPI2 NOR backend for nvm */
 #include "rtc.h"          /* portable RTC/calendar service (App/services) */
 #include "drv_mcp7940n.h" /* Task 7: concrete I2C1 MCP7940N backend for rtc */
+#include "sensors.h"      /* portable sensor conversion service (App/services) */
+#include "sensors_cal.h"  /* VREF_CAL_DEFAULT (scalar defines only without OWNER) */
+#include "drv_bsp_adc.h"  /* Task 8: concrete ADC1+DMA feed for sensors */
 #include "mb_engine.h"       /* portable Modbus RTU engine (App/services) */
 #include "mbp_sys.h"         /* portable system provider (fw-rev/reset regs) */
 #include "mbp_nvm.h"         /* portable NVM Modbus provider (persisted regs) */
 #include "mbp_rtc.h"         /* portable RTC/calendar Modbus provider (regs 24-31/42-48/52) */
+#include "mbp_sensors.h"     /* portable sensors Modbus provider (regs 1/3/6/38/51) */
 #include "drv_modbus_uart.h" /* Task 5: USART1 RS-485 RTU transport */
 
 /* -------------------------------------------------------------------------
@@ -69,6 +73,13 @@ void app_main(void)
      * backup (VBATEN) on the first set-time. Bound before its Modbus provider. */
     rtc_init(drv_mcp7940n_backend());
 
+    /* Task 8 — sensor conversion service + ADC1 feed. sensors_init sets the
+     * per-channel averaging windows (must run before any sample) and the VREF
+     * trim; drv_bsp_adc_init calibrates ADC1 and starts the free-running scan +
+     * circular DMA. Conversions are drained into sensors on SLOT_100MS below. */
+    sensors_init(VREF_CAL_DEFAULT, /*temp_cal*/ 0);
+    drv_bsp_adc_init();
+
 #if BSP_IO_BENCH_RELAY_WALK
     drv_bsp_io_bench_relay_walk();     /* bench Step 4: click each relay in turn */
 #endif
@@ -82,10 +93,12 @@ void app_main(void)
     mbp_sys_register(NULL);           /* NULL reset fn: wr_reset no-ops until Task 10 */
     mbp_nvm_register();               /* persisted regs (runtime hrs, settings, flags) */
     mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
+    mbp_sensors_register(NULL);       /* Task 8: temp/batt regs 1/3/6/51 (reg 38 RPM=0 until Task 9) */
     drv_modbus_uart_init();
 
     sched_init();                     /* clears scheduler state + app_timers_init() */
     sched_register(SLOT_1S, on_1s);   /* temporary cadence probe (real control slots land in Task 11) */
+    sched_register(SLOT_100MS, drv_bsp_adc_drain); /* Task 8: push ADC counts -> sensors averager */
 
     uint32_t last = HAL_GetTick();
     for (;;)

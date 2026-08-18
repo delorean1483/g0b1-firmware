@@ -115,5 +115,20 @@
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_rtc.c</locationURI>
 		</link>
+		<link>
+			<name>Core/Src/sensors.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/sensors.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/rpm.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/rpm.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/mbp_sensors.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_sensors.c</locationURI>
+		</link>
 	</linkedResources>
 </projectDescription>

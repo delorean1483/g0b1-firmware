@@ -35,6 +35,10 @@ void sensors_init(uint16_t vref_cal, int16_t temp_cal) {
 }
 
 void sensors_add_sample(sensor_ch_t ch, uint16_t raw) {
+    /* Harden the ADC-fed entry point: reject an out-of-range channel (OOB index)
+     * and a pre-init/zero window (divide-by-zero below). Both are quiet UB the
+     * real DMA feed could trigger; see test_sensors_guard. */
+    if ((unsigned)ch >= SENS_CH_COUNT || s_chan[ch].window == 0u) return;
     sens_chan_t *c = &s_chan[ch];
     c->accum += raw;
     if (++c->count < c->window) return;
