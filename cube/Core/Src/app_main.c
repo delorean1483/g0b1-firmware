@@ -12,6 +12,7 @@
 #include "sensors.h"      /* portable sensor conversion service (App/services) */
 #include "sensors_cal.h"  /* VREF_CAL_DEFAULT (scalar defines only without OWNER) */
 #include "drv_bsp_adc.h"  /* Task 8: concrete ADC1+DMA feed for sensors */
+#include "drv_rpm_tim3.h" /* Task 9: concrete TIM3_CH1 tach capture -> rpm_source_t */
 #include "mb_engine.h"       /* portable Modbus RTU engine (App/services) */
 #include "mbp_sys.h"         /* portable system provider (fw-rev/reset regs) */
 #include "mbp_nvm.h"         /* portable NVM Modbus provider (persisted regs) */
@@ -80,6 +81,11 @@ void app_main(void)
     sensors_init(VREF_CAL_DEFAULT, /*temp_cal*/ 0);
     drv_bsp_adc_init();
 
+    /* Task 9 — engine RPM from the tach pulse on TIM3_CH1 (PA6). Start the
+     * input capture; drv_rpm_source() is handed to mbp_sensors_register below
+     * so reg 38 reads live RPM (0 until the engine turns / after a stop). */
+    drv_rpm_tim3_init();
+
 #if BSP_IO_BENCH_RELAY_WALK
     drv_bsp_io_bench_relay_walk();     /* bench Step 4: click each relay in turn */
 #endif
@@ -93,7 +99,7 @@ void app_main(void)
     mbp_sys_register(NULL);           /* NULL reset fn: wr_reset no-ops until Task 10 */
     mbp_nvm_register();               /* persisted regs (runtime hrs, settings, flags) */
     mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
-    mbp_sensors_register(NULL);       /* Task 8: temp/batt regs 1/3/6/51 (reg 38 RPM=0 until Task 9) */
+    mbp_sensors_register(drv_rpm_source()); /* Task 8/9: temp/batt regs 1/3/6/51 + reg 38 live RPM */
     drv_modbus_uart_init();
 
     sched_init();                     /* clears scheduler state + app_timers_init() */

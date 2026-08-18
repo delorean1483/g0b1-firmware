@@ -40,6 +40,7 @@ add_unity_test(test_sensors_guard test_sensors_guard.c ../App/services/sensors.c
 target_compile_options(test_sensors_guard PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all)
 target_link_options(test_sensors_guard PRIVATE -fsanitize=address,undefined)
 add_unity_test(test_rpm test_rpm.c ../App/services/rpm.c)
+add_unity_test(test_rpm_calc test_rpm_calc.c ../App/services/rpm_calc.c)
 add_unity_test(test_fake_i2c test_fake_i2c.c fakes/fake_i2c.c)
 add_unity_test(test_rtc_bcd test_rtc_bcd.c ../App/services/rtc.c)
 add_unity_test(test_rtc_time test_rtc_time.c ../App/services/rtc.c fakes/fake_i2c.c)
