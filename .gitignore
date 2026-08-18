@@ -1,1 +1,10 @@
-/Tests/build/
+# STM32CubeIDE build output (generated .elf/.o/.map/.list — never committed)
+Debug/
+Release/
+
+# CubeIDE / Eclipse workspace metadata (lives in the workspace, but ignore if it leaks in)
+.metadata/
+*.launch
+
+# Host Unity test build tree (CMake) — already generated, not source
+Tests/build/
