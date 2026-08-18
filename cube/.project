@@ -29,4 +29,21 @@
 		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>App</name>
+			<type>2</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/sched.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/sched.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/app_timers.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/app_timers.c</locationURI>
+		</link>
+	</linkedResources>
 </projectDescription>
