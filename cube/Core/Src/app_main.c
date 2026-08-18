@@ -1,8 +1,10 @@
 #include "app_main.h"
 #include "main.h"       /* CubeMX-generated HAL: HAL_GetTick() (SysTick 1 ms base) */
 #include "sched.h"      /* portable M5 cooperative scheduler (App/services) */
-#include "bsp_io.h"     /* portable relay/discrete-input service (App/services) */
-#include "drv_bsp_io.h" /* Task 3: concrete STM32G0 GPIO backend for bsp_io */
+#include "bsp_io.h"      /* portable relay/discrete-input service (App/services) */
+#include "drv_bsp_io.h"  /* Task 3: concrete STM32G0 GPIO backend for bsp_io */
+#include "bsp_pwm.h"     /* portable fan-PWM service (App/services) */
+#include "drv_bsp_pwm.h" /* Task 4: concrete STM32G0 TIM2 backend for bsp_pwm */
 
 /* -------------------------------------------------------------------------
  * Task 2 — SysTick -> cooperative scheduler superloop.
@@ -42,6 +44,11 @@ void app_main(void)
     for (int o = 0; o < (int)OUT_COUNT; ++o) {
         bsp_out_set((bsp_out_t)o, false);
     }
+
+    /* Task 4 — fan-PWM backend: start TIM2 CH1/CH2 at 0 % (evap + condenser fans
+     * OFF) as part of the safe-default. */
+    bsp_pwm_init(drv_bsp_pwm_backend());
+    drv_bsp_pwm_start();
 
 #if BSP_IO_BENCH_RELAY_WALK
     drv_bsp_io_bench_relay_walk();     /* bench Step 4: click each relay in turn */
