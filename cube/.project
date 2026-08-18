@@ -100,5 +100,20 @@
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_nvm.c</locationURI>
 		</link>
+		<link>
+			<name>Core/Src/rtc.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/rtc.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/rtc_calendar.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/rtc_calendar.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/mbp_rtc.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_rtc.c</locationURI>
+		</link>
 	</linkedResources>
 </projectDescription>

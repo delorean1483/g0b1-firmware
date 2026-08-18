@@ -7,9 +7,12 @@
 #include "drv_bsp_pwm.h" /* Task 4: concrete STM32G0 TIM2 backend for bsp_pwm */
 #include "nvm.h"          /* portable NVM (params/journal) service (App/services) */
 #include "drv_s25fl064.h" /* Task 6: concrete SPI2 NOR backend for nvm */
+#include "rtc.h"          /* portable RTC/calendar service (App/services) */
+#include "drv_mcp7940n.h" /* Task 7: concrete I2C1 MCP7940N backend for rtc */
 #include "mb_engine.h"       /* portable Modbus RTU engine (App/services) */
 #include "mbp_sys.h"         /* portable system provider (fw-rev/reset regs) */
 #include "mbp_nvm.h"         /* portable NVM Modbus provider (persisted regs) */
+#include "mbp_rtc.h"         /* portable RTC/calendar Modbus provider (regs 24-31/42-48/52) */
 #include "drv_modbus_uart.h" /* Task 5: USART1 RS-485 RTU transport */
 
 /* -------------------------------------------------------------------------
@@ -61,6 +64,11 @@ void app_main(void)
      * reads the journal shadow and factory-inits a blank part. */
     nvm_init(drv_s25fl064_backend());
 
+    /* Task 7 — RTC backend (MCP7940N over I2C1). rtc_init only stashes the
+     * backend; the rtc service starts the oscillator (ST) and enables battery
+     * backup (VBATEN) on the first set-time. Bound before its Modbus provider. */
+    rtc_init(drv_mcp7940n_backend());
+
 #if BSP_IO_BENCH_RELAY_WALK
     drv_bsp_io_bench_relay_walk();     /* bench Step 4: click each relay in turn */
 #endif
@@ -73,6 +81,7 @@ void app_main(void)
     mb_engine_init();
     mbp_sys_register(NULL);           /* NULL reset fn: wr_reset no-ops until Task 10 */
     mbp_nvm_register();               /* persisted regs (runtime hrs, settings, flags) */
+    mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
     drv_modbus_uart_init();
 
     sched_init();                     /* clears scheduler state + app_timers_init() */
