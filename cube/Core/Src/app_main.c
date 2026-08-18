@@ -1,6 +1,8 @@
 #include "app_main.h"
-#include "main.h"    /* CubeMX-generated HAL: HAL_GetTick() (SysTick 1 ms base) */
-#include "sched.h"   /* portable M5 cooperative scheduler (App/services) */
+#include "main.h"       /* CubeMX-generated HAL: HAL_GetTick() (SysTick 1 ms base) */
+#include "sched.h"      /* portable M5 cooperative scheduler (App/services) */
+#include "bsp_io.h"     /* portable relay/discrete-input service (App/services) */
+#include "drv_bsp_io.h" /* Task 3: concrete STM32G0 GPIO backend for bsp_io */
 
 /* -------------------------------------------------------------------------
  * Task 2 — SysTick -> cooperative scheduler superloop.
@@ -30,8 +32,23 @@ static void on_1s(void)
 
 void app_main(void)
 {
+    /* Task 3 — relay/discrete-input backend up FIRST, then force every output
+     * OFF before anything (scheduler, control, Modbus) can command an actuator.
+     * The engine, starter, glow-plug and compressor must never be driven by a
+     * power-on glitch or an uninitialised GPIO. MX_GPIO_Init() has already set
+     * each relay pin to its de-energized initial level; this is the explicit,
+     * belt-and-suspenders safe-default-off through the portable API. */
+    bsp_io_init(drv_bsp_io_backend());
+    for (int o = 0; o < (int)OUT_COUNT; ++o) {
+        bsp_out_set((bsp_out_t)o, false);
+    }
+
+#if BSP_IO_BENCH_RELAY_WALK
+    drv_bsp_io_bench_relay_walk();     /* bench Step 4: click each relay in turn */
+#endif
+
     sched_init();                     /* clears scheduler state + app_timers_init() */
-    sched_register(SLOT_1S, on_1s);   /* temporary cadence probe (removed in Task 3) */
+    sched_register(SLOT_1S, on_1s);   /* temporary cadence probe (real control slots land in Task 11) */
 
     uint32_t last = HAL_GetTick();
     for (;;)
