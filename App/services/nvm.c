@@ -35,13 +35,23 @@ void nvm_init(const nvm_backend_t *be) {
     uint8_t payload[NVM_PARAM_SIZE];
     uint8_t best_payload[NVM_PARAM_SIZE];
 
+    /* Bounded tail scan. The journal is an append-only circular log: every lap
+       starts at slot 0 and writes strictly-increasing seq numbers, erasing each
+       sector just before reusing it. So reading forward from slot 0 the seq rises
+       until the newest record (the tail); the next slot is then either erased
+       (blank tail) or holds an older lap's record (seq drops). Stop at that
+       boundary — scan cost is O(live records), not O(whole device). A full sweep
+       of all s_slots_total records took ~50 s on the real 8 MB NOR and tripped
+       the boot watchdog. A torn last write leaves an invalid record at the tail,
+       so the read simply fails there and best_* still holds the prior good
+       record — identical recovery to the old full sweep. */
     for (uint32_t slot = 0; slot < s_slots_total; slot++) {
-        if (nvm_record_read(be, slot_addr(slot), &tmp_seq, payload)) {
-            if (!found || tmp_seq > best_seq) {
-                found = true; best_seq = tmp_seq; best_slot = slot;
-                for (uint32_t i = 0; i < NVM_PARAM_SIZE; i++) best_payload[i] = payload[i];
-            }
-        }
+        if (!nvm_record_read(be, slot_addr(slot), &tmp_seq, payload))
+            break;                       /* erased/invalid: end of the live region */
+        if (found && tmp_seq <= best_seq)
+            break;                       /* seq stopped rising: wrapped into an older lap */
+        found = true; best_seq = tmp_seq; best_slot = slot;
+        for (uint32_t i = 0; i < NVM_PARAM_SIZE; i++) best_payload[i] = payload[i];
     }
 
     if (found) {

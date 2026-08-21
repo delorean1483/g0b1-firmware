@@ -8,4 +8,6 @@ void fake_nor_reset(void);               /* erase all to 0xFF */
 void fake_nor_fail_writes(int on);       /* 1 = program/erase return -1 (backend failure injection) */
 uint8_t *fake_nor_raw(void);             /* backing array (for corruption tests) */
 uint32_t fake_nor_size(void);            /* total bytes */
+uint32_t fake_nor_reads(void);           /* count of read() calls since last reset (scan-cost tests) */
+void fake_nor_reads_reset(void);         /* zero the read counter */
 #endif

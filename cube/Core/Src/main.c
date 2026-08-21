@@ -116,7 +116,11 @@ int main(void)
   MX_I2C1_Init();
   MX_ADC1_Init();
   MX_TIM3_Init();
-  MX_IWDG_Init();
+  /* MX_IWDG_Init();  -- MOVED into app_main() (bench fix). The IWDG must NOT be
+     armed here, before app_main(): the one-time NVM journal scan in nvm_init()
+     can run longer than the ~2 s IWDG period, which caused a boot reset loop.
+     app_main() now arms the watchdog after all init, just before its superloop.
+     Do not re-enable this call. (MX_IWDG_Init remains defined but unused.) */
   /* USER CODE BEGIN 2 */
   app_main();   /* never returns — owns the superloop (Task 1: idle; MCO on PA8 = 4 MHz validates the clock) */
   /* USER CODE END 2 */

@@ -124,6 +124,21 @@ void app_main(void)
     sched_register(SLOT_1S,    control_1s_slot);
     sched_register(SLOT_1MIN,  control_1min_slot);
 
+    /* Task 10 (bench fix) — arm the IWDG HERE, after all boot init has run
+     * (relays/PWM/NVM/RTC/sensors/RPM/Modbus/control) and immediately before the
+     * steady-state superloop. The watchdog guards the running loop, not the
+     * one-time boot: nvm_init()'s journal scan can exceed the ~2 s IWDG period,
+     * so arming it in main() (before app_main) caused a boot reset loop. Config
+     * mirrors the generated MX_IWDG_Init() (PRESC 32, reload 1999 -> ~2 s); the
+     * MX_IWDG_Init() call in main() is disabled — see Core/Src/main.c. */
+    hiwdg.Instance       = IWDG;
+    hiwdg.Init.Prescaler = IWDG_PRESCALER_32;
+    hiwdg.Init.Window    = 4095;
+    hiwdg.Init.Reload    = 1999;
+    if (HAL_IWDG_Init(&hiwdg) != HAL_OK) {
+        Error_Handler();
+    }
+
     uint32_t last = HAL_GetTick();
     for (;;)
     {

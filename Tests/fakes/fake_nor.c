@@ -4,9 +4,11 @@
 #define NOR_SIZE (FAKE_NOR_SECTOR_SIZE * FAKE_NOR_SECTOR_COUNT)
 static uint8_t s_mem[NOR_SIZE];
 static int s_fail_writes;   /* when set, program/erase report a backend failure */
+static uint32_t s_reads;    /* count of read() calls (for scan-cost tests) */
 
 static int f_read(void *ctx, uint32_t addr, uint8_t *buf, uint32_t len) {
     (void)ctx;
+    s_reads++;
     if ((uint64_t)addr + len > NOR_SIZE) return -1;
     memcpy(buf, &s_mem[addr], len);
     return 0;
@@ -25,7 +27,9 @@ static int f_erase(void *ctx, uint32_t sector) {
     memset(&s_mem[sector * FAKE_NOR_SECTOR_SIZE], 0xFF, FAKE_NOR_SECTOR_SIZE);
     return 0;
 }
-void fake_nor_reset(void) { memset(s_mem, 0xFF, NOR_SIZE); s_fail_writes = 0; }
+void fake_nor_reset(void) { memset(s_mem, 0xFF, NOR_SIZE); s_fail_writes = 0; s_reads = 0; }
+uint32_t fake_nor_reads(void) { return s_reads; }
+void fake_nor_reads_reset(void) { s_reads = 0; }
 void fake_nor_fail_writes(int on) { s_fail_writes = on; }
 void fake_nor_init(nvm_backend_t *be) {
     fake_nor_reset();
