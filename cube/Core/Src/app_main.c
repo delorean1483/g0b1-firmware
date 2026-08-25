@@ -23,6 +23,37 @@
 
 extern IWDG_HandleTypeDef hiwdg;  /* Task 10: CubeMX-generated (MX_IWDG_Init, ~2 s) */
 
+/* ── Board revision (PC3 differs between EF-G0B1R R0 and R1) ─────────────────
+ * R0: PC3 = VCC_EN — drives a load switch (Q2) that powers the 3P3_VCC rail
+ *     feeding the ADC VREF, the sensor/RPM analog front-end, the NOR flash and
+ *     the RTC. It MUST be asserted high at boot before any of those are used,
+ *     or they read dead (relays are on the always-on VCC_AO rail, so they work
+ *     regardless). See "Schematic PDF_[No Variations].pdf" (EF-G0B1R R0).
+ * R1: PC3 is repurposed as LEDS_OFF — do NOT drive it as VCC_EN.
+ * Default is R0 (current bench + near-term units); build an R1 image with
+ * -DBOARD_REV_R1 to leave PC3 alone. */
+#if !defined(BOARD_REV_R0) && !defined(BOARD_REV_R1)
+#define BOARD_REV_R0 1
+#endif
+
+#ifdef BOARD_REV_R0
+/* Assert VCC_EN (PC3) to power the 3P3_VCC rail, then let it settle before any
+ * NOR/RTC/ADC/RPM access. GPIOC clock is already on (MX_GPIO_Init); the enable
+ * here is idempotent. */
+static void board_r0_vcc_enable(void)
+{
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    GPIO_InitTypeDef g = {0};
+    g.Pin   = GPIO_PIN_3;
+    g.Mode  = GPIO_MODE_OUTPUT_PP;
+    g.Pull  = GPIO_NOPULL;
+    g.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOC, &g);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET);   /* VCC_EN = 1 */
+    HAL_Delay(10);   /* 3P3_VCC rise + settle before nvm/rtc/adc/rpm init below */
+}
+#endif
+
 /* -------------------------------------------------------------------------
  * Task 2 — SysTick -> cooperative scheduler superloop.
  *
@@ -51,6 +82,13 @@ void app_main(void)
      * reset; production builds leave it free-running. */
 #ifdef DEBUG
     __HAL_DBGMCU_FREEZE_IWDG();
+#endif
+
+#ifdef BOARD_REV_R0
+    /* R0: power the 3P3_VCC rail (VCC_EN = PC3) BEFORE the nvm/rtc/adc/rpm init
+     * below — on an R0 board the NOR flash, RTC, ADC VREF and sensor/RPM front-
+     * end are all on that gated rail. (Not compiled on an R1 build.) */
+    board_r0_vcc_enable();
 #endif
 
     /* Task 3 — relay/discrete-input backend up FIRST, then force every output
