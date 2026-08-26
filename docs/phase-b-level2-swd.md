@@ -1,6 +1,21 @@
-# Phase B — Level 2 SWD: op-state → actuator FSM walk
+# Phase B — Level 2: op-state → actuator FSM walk
 
-**Purpose:** drive the control state machine through a full **CLIMATE** start and confirm the *right relays fire in the right order* on real silicon — the engine-start sequence and cooling handoff — before any real loads are connected. Runs on the standalone R0 bench board over SWD. No RS-485, no signal generator, **no RPM signal** (RPM is telemetry-only reg 38; it does not gate the FSM — oil pressure does), and **no input jumpers**.
+> ⚠️ **VALIDATED 2026-08-26 — but the SWD-halt method below is SUPERSEDED. Prefer the Modbus monitor.**
+> Halting a free-running control loop over SWD is unreliable: the ST-Link (connect-under-reset,
+> halt/resume cycling, hardware watchpoints) **destabilizes the running target** and produces phantom
+> resets / `mode_request` clears that mimic firmware bugs. We chased one for an hour; it was the debugger.
+> A HW `watch` on Cortex-M0+ also hung the session unrecoverably (had to unplug the ST-Link + power-cycle).
+>
+> **Recommended method — run over Modbus with the debugger DETACHED:**
+> ```
+> firmware/g0b1-apu/tools/climate_monitor.py --port <port> --set climate --secs 90
+> ```
+> It writes reg 10 = climate and polls mode/engine/control/error every 2 s. Clean-board result:
+> `t=0 climate → t=2.3s warming_up(glow) → t=32s starting(fuel+starter) → t=44.8s running/cooling → stable`.
+> That is the real, correct behavior (timing matches the firmware). Use the SWD sections below only for
+> single-shot ODR spot-checks of a specific relay, never to walk the whole sequence.
+
+**Purpose:** drive the control state machine through a full **CLIMATE** start and confirm the *right relays fire in the right order* on real silicon — the engine-start sequence and cooling handoff — before any real loads are connected. Runs on the standalone R0 bench board. No RS-485 master needed for the SWD method; no signal generator, **no RPM signal** (RPM is telemetry-only reg 38; it does not gate the FSM — oil pressure does), and **no input jumpers**.
 
 > ⚠️ **Safety:** relays/loads disconnected (or dummy LEDs). This walks the real start sequence — glow, fuel, starter, compressor, fans will assert their GPIOs. Safe only with no actuators wired.
 
