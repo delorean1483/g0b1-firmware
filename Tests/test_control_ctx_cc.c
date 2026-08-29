@@ -9,7 +9,7 @@ void tearDown(void) {}
 static void test_init_resets_cc_fields(void) {
     TEST_ASSERT_EQUAL_INT16(0, ctx.cabin_temperature);
     TEST_ASSERT_EQUAL_INT16(0, ctx.clmt_temp_setting);
-    TEST_ASSERT_EQUAL_UINT8(FAN_HIGH, ctx.evap_fan_speed);
+    TEST_ASSERT_EQUAL_UINT8(100, ctx.evap_fan_speed);   /* percent: default full */
     TEST_ASSERT_EQUAL_UINT8(0, ctx.compressor_on_timer);
     TEST_ASSERT_EQUAL_UINT8(0, ctx.compressor_off_timer);
     TEST_ASSERT_EQUAL_UINT8(0, ctx.refregerant_check_counter);

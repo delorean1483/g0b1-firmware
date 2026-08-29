@@ -9,7 +9,7 @@ static const nvm_map_row_t s_rows[] = {
     { 11, ENGINE_RUNTIME_START,    0, 0xFFFF },
     { 20, ENGINE_OILTIME_START,    0, 0xFFFF },
     { 21, MACHINE_RUNTIME_START,   0, 0xFFFF },
-    { 12, EE_EVAP_FAN_SPEED,       1, 2 },
+    { 12, EE_EVAP_FAN_SPEED,       1, 100 },   /* percent 0..100 (0 = off) */
     { 13, EE_MONITOR_BATT_SETTING, 0, 0xFFFF },
     { 14, EE_CLIMATE_TEMP_SETTING, 0, 0xFFFF },
     { 15, EE_STORAGE_TEMP_SETTING, 0, 0xFFFF },

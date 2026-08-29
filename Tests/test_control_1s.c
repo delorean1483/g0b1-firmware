@@ -35,16 +35,16 @@ static void test_compressor_timer_caps_at_255(void) {
 
 static void test_sample_settings_reads_nvm(void) {
     nvm_write_word(EE_CLIMATE_TEMP_SETTING, 72);
-    nvm_write_byte(EE_EVAP_FAN_SPEED, FAN_MEDIUM);
+    nvm_write_byte(EE_EVAP_FAN_SPEED, 60);      /* 60 % */
     control_climate_sample_settings(&ctx);
     TEST_ASSERT_EQUAL_INT16(72, ctx.clmt_temp_setting);
-    TEST_ASSERT_EQUAL_UINT8(FAN_MEDIUM, ctx.evap_fan_speed);
+    TEST_ASSERT_EQUAL_UINT8(60, ctx.evap_fan_speed);
 }
 
 static void test_sample_settings_clamps_evap_speed(void) {
-    nvm_write_byte(EE_EVAP_FAN_SPEED, 9);       /* out of range -> clamp to FAN_HIGH */
+    nvm_write_byte(EE_EVAP_FAN_SPEED, 150);     /* out of range -> clamp to 100 % */
     control_climate_sample_settings(&ctx);
-    TEST_ASSERT_EQUAL_UINT8(FAN_HIGH, ctx.evap_fan_speed);
+    TEST_ASSERT_EQUAL_UINT8(100, ctx.evap_fan_speed);
 }
 
 int main(void) {

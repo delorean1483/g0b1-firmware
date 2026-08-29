@@ -18,7 +18,7 @@ static void ctrl_10ms(void) {
     io_debounce_service(&oil, bsp_in_read(IN_OIL_PRESSURE) ? SWITCH_CLOSED : SWITCH_OPEN);
     if (io_debounce_state(&oil) == SWITCH_CLOSED) {
         bsp_out_set(OUT_FUEL_PUMP, true);
-        bsp_pwm_set(PWM_EVAP_FAN, fan_speed_permille(FAN_LOW));
+        bsp_pwm_set(PWM_EVAP_FAN, fan_duty_permille(1));   /* min-spin (floor) */
     }
 }
 
@@ -48,7 +48,7 @@ static void test_debounced_input_drives_outputs_through_scheduler(void) {
     TEST_ASSERT_FALSE(fake_bsp_io_out(OUT_FUEL_PUMP));
     advance(20);                              /* crosses the 10th sample -> commit */
     TEST_ASSERT_TRUE(fake_bsp_io_out(OUT_FUEL_PUMP));
-    TEST_ASSERT_EQUAL_UINT16(318, fake_bsp_pwm_duty(PWM_EVAP_FAN)); /* FAN_LOW */
+    TEST_ASSERT_EQUAL_UINT16(318, fake_bsp_pwm_duty(PWM_EVAP_FAN)); /* fan_duty_permille(1) = floor */
 }
 
 static void test_second_timer_expires_under_scheduler(void) {

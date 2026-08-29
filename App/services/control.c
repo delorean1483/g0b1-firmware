@@ -26,7 +26,7 @@ void control_init(apu_ctx_t *ctx) {
     ctx->standby_override = false;
     ctx->cabin_temperature = 0;
     ctx->clmt_temp_setting = 0;
-    ctx->evap_fan_speed = FAN_HIGH;
+    ctx->evap_fan_speed = 100u;   /* percent: default full (was FAN_HIGH) */
     ctx->compressor_on_timer = 0;
     ctx->compressor_off_timer = 0;
     ctx->refregerant_check_counter = 0;

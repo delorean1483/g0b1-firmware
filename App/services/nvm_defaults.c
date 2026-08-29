@@ -17,7 +17,7 @@ void nvm_apply_factory_defaults(uint8_t *shadow) {
     wr16(shadow, EE_MONITOR_BATT_SETTING, 1200u);
     wr16(shadow, EE_STORAGE_TEMP_SETTING,  30u);
     wr16(shadow, EE_STORAGE_BATT_SETTING,1180u);
-    shadow[EE_EVAP_FAN_SPEED]   = 2u;   /* HIGH */
+    shadow[EE_EVAP_FAN_SPEED]   = 100u; /* percent: full (was HIGH=2) */
     shadow[EE_TEMP_UNIT]        = 0u;   /* FAHRENHEIT */
     shadow[EE_CLND_START_ONOFF] = 0u;
     shadow[EE_CLND_START_MODE]  = 1u;   /* CLIMATE_CONTROL_MODE */

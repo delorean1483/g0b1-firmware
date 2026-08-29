@@ -20,13 +20,14 @@ static void test_pwm_clamps_over_max(void) {
 }
 
 static void test_fan_speed_duty_ratios(void) {
-    TEST_ASSERT_EQUAL_UINT16(318,  fan_speed_permille(FAN_LOW));
-    TEST_ASSERT_EQUAL_UINT16(545,  fan_speed_permille(FAN_MEDIUM));
-    TEST_ASSERT_EQUAL_UINT16(1000, fan_speed_permille(FAN_HIGH));
+    TEST_ASSERT_EQUAL_UINT16(0,    fan_duty_permille(0));    /* off */
+    TEST_ASSERT_EQUAL_UINT16(318,  fan_duty_permille(1));    /* min-spin floor (32%) */
+    TEST_ASSERT_EQUAL_UINT16(655,  fan_duty_permille(50));   /* mid */
+    TEST_ASSERT_EQUAL_UINT16(1000, fan_duty_permille(100));  /* full */
 }
 
 static void test_fan_speed_applied_to_pwm(void) {
-    bsp_pwm_set(PWM_EVAP_FAN, fan_speed_permille(FAN_LOW));
+    bsp_pwm_set(PWM_EVAP_FAN, fan_duty_permille(1));
     TEST_ASSERT_EQUAL_UINT16(318, bsp_pwm_get(PWM_EVAP_FAN));
 }
 

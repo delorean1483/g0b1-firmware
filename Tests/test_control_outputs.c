@@ -36,14 +36,14 @@ static void test_heat_reverse_maps_to_heat_reverser(void) {
 }
 
 static void test_evap_fan_on_sets_relay_and_pwm_duty(void) {
-    ctx.out.evap_fan = true; ctx.out.evap_speed = FAN_MEDIUM;
+    ctx.out.evap_fan = true; ctx.out.evap_speed = 50;   /* 50% */
     outputs_apply(&ctx);
     TEST_ASSERT_TRUE(fake_bsp_io_out(OUT_EVAP_FAN));
-    TEST_ASSERT_EQUAL_UINT16(545, fake_bsp_pwm_duty(PWM_EVAP_FAN)); /* FAN_MEDIUM */
+    TEST_ASSERT_EQUAL_UINT16(655, fake_bsp_pwm_duty(PWM_EVAP_FAN)); /* 50% -> 655 permille */
 }
 
 static void test_evap_fan_off_zeroes_pwm(void) {
-    ctx.out.evap_fan = true; ctx.out.evap_speed = FAN_HIGH; outputs_apply(&ctx);
+    ctx.out.evap_fan = true; ctx.out.evap_speed = 100; outputs_apply(&ctx);
     ctx.out.evap_fan = false; outputs_apply(&ctx);
     TEST_ASSERT_FALSE(fake_bsp_io_out(OUT_EVAP_FAN));
     TEST_ASSERT_EQUAL_UINT16(0, fake_bsp_pwm_duty(PWM_EVAP_FAN));
@@ -60,10 +60,10 @@ static void test_evap_forced_on_timer_keeps_fan_on(void) {
     app_timers_init();
     app_timer_set(SCALE_SECOND, EVAP_FORCED_ON_TMR, 5);   /* forced-on window active */
     ctx.out.evap_fan = false;                              /* request says off... */
-    ctx.out.evap_speed = FAN_HIGH;
+    ctx.out.evap_speed = 100;
     outputs_apply(&ctx);
     TEST_ASSERT_TRUE(fake_bsp_io_out(OUT_EVAP_FAN));       /* ...but forced on */
-    TEST_ASSERT_EQUAL_UINT16(fan_speed_permille(FAN_HIGH), fake_bsp_pwm_duty(PWM_EVAP_FAN));
+    TEST_ASSERT_EQUAL_UINT16(fan_duty_permille(100), fake_bsp_pwm_duty(PWM_EVAP_FAN));
 }
 
 static void test_evap_off_when_timer_expired_and_not_requested(void) {

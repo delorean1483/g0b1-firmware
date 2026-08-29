@@ -75,11 +75,11 @@ static void test_comp_on_waits_for_off_guard(void) {
 }
 
 static void test_evap_on_turns_on_and_arms_defrost(void) {
-    ctx.sub_state = 7 /*CC_EVAP_ON*/; ctx.evap_fan_speed = FAN_MEDIUM;
+    ctx.sub_state = 7 /*CC_EVAP_ON*/; ctx.evap_fan_speed = 50;
     /* COMP_EVAP_DELAY_TMR is 0 (expired) in fresh app_timers_init */
     control_climate_mode(&ctx);
     TEST_ASSERT_TRUE(ctx.out.evap_fan);
-    TEST_ASSERT_EQUAL_UINT8(FAN_MEDIUM, ctx.out.evap_speed);
+    TEST_ASSERT_EQUAL_UINT8(50, ctx.out.evap_speed);
     TEST_ASSERT_EQUAL_UINT16(10, app_timer_get(SCALE_SECOND, EVAP_FORCED_ON_TMR));
     TEST_ASSERT_EQUAL_UINT16(30, app_timer_get(SCALE_MINUTE, DEFROST_CYCLE_TMR));
     TEST_ASSERT_EQUAL_UINT8(8, ctx.sub_state);          /* CC_CTRL_RUNNING */
@@ -89,12 +89,12 @@ static void test_evap_speed_tracks_live_setting(void) {
     /* Regression: a speed change must take effect while cooling is already
        running, not stay latched at CC_EVAP_ON (HMI/Modbus reg 12 live control). */
     ctx.sub_state = 8 /*CC_CTRL_RUNNING*/;
-    ctx.evap_fan_speed = FAN_MEDIUM;
+    ctx.evap_fan_speed = 40;
     control_climate_mode(&ctx);
-    TEST_ASSERT_EQUAL_UINT8(FAN_MEDIUM, ctx.out.evap_speed);
-    ctx.evap_fan_speed = FAN_HIGH;                       /* speed changed mid-run */
+    TEST_ASSERT_EQUAL_UINT8(40, ctx.out.evap_speed);
+    ctx.evap_fan_speed = 90;                             /* speed changed mid-run */
     control_climate_mode(&ctx);
-    TEST_ASSERT_EQUAL_UINT8(FAN_HIGH, ctx.out.evap_speed);
+    TEST_ASSERT_EQUAL_UINT8(90, ctx.out.evap_speed);
 }
 
 static void test_ctrl_running_reaches_setpoint(void) {

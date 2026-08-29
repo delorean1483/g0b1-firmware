@@ -26,8 +26,9 @@ static void test_byte_reg_and_range(void) {
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(19, 1));     /* temp unit ok */
     TEST_ASSERT_EQUAL_UINT8(1, nvm_read_byte(EE_TEMP_UNIT));
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(19, 2));   /* out of range */
-    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(12, 3));   /* fan speed > 2 */
-    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(12, 2));            /* fan speed ok */
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(12, 101)); /* fan speed > 100 % */
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(12, 100));          /* fan speed 100 % ok */
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(12, 0));            /* fan off ok */
 }
 
 static void test_calibration_regs(void) {

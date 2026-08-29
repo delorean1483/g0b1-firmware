@@ -1,7 +1,7 @@
 #ifndef CONTROL_H
 #define CONTROL_H
 #include "types.h"
-#include "fan_speed.h"   /* fan_speed_t for the evap-fan request */
+#include "fan_speed.h"   /* fan_duty_permille() for the evap-fan request */
 
 #define CONTROL_INPUT_DEBOUNCE_TIME 50u   /* PIC oil/ignition: 50 x 10 ms = 500 ms */
 
@@ -34,7 +34,7 @@ typedef enum { TD_REAL_TIME = 0, TD_CC_SETTING, TD_CS_SETTING } temp_display_t;
 /* Output *requests* the modes set; outputs_apply() maps them to bsp_io/bsp_pwm. */
 typedef struct {
     bool fuel_pump, starter, glow_plug, compressor_clutch, heat_reverse;
-    bool evap_fan;          fan_speed_t evap_speed;
+    bool evap_fan;          uint8_t evap_speed;   /* percent 0..100 */
     bool condenser_fan;     uint16_t condenser_duty;   /* permille */
 } apu_outputs_t;
 
@@ -61,7 +61,7 @@ typedef struct {
     /* --- M6c climate --- */
     int16_t  cabin_temperature;        /* degF, from M3 enclosure sensor (reg 1) */
     int16_t  clmt_temp_setting;        /* degF, from NVM EE_CLIMATE_TEMP_SETTING (reg 14) */
-    uint8_t  evap_fan_speed;           /* fan_speed_t, from NVM EE_EVAP_FAN_SPEED (reg 12) */
+    uint8_t  evap_fan_speed;           /* percent 0..100, from NVM EE_EVAP_FAN_SPEED (reg 12) */
     uint8_t  compressor_on_timer;      /* seconds compressor ON (count-up, cap 255) */
     uint8_t  compressor_off_timer;     /* seconds compressor OFF (count-up, cap 255) */
     uint8_t  refregerant_check_counter;/* A/C low-pressure retry counter */

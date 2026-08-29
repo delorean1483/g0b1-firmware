@@ -17,7 +17,7 @@ void outputs_apply(const apu_ctx_t *ctx) {
        called on (hardware quirk, 6-18-2015) — stay enabled while the timer runs. */
     bool evap_on = o->evap_fan || (app_timer_get(SCALE_SECOND, EVAP_FORCED_ON_TMR) != 0u);
     bsp_out_set(OUT_EVAP_FAN, evap_on);
-    bsp_pwm_set(PWM_EVAP_FAN, evap_on ? fan_speed_permille(o->evap_speed) : 0u);
+    bsp_pwm_set(PWM_EVAP_FAN, evap_on ? fan_duty_permille(o->evap_speed) : 0u);
 
     bsp_out_set(OUT_CONDENSER_FAN, o->condenser_fan);
     bsp_pwm_set(PWM_CONDENSER_FAN, o->condenser_fan ? o->condenser_duty : 0u);

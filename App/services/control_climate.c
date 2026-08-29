@@ -17,7 +17,7 @@ void control_service_compressor_timers(apu_ctx_t *ctx) {
 void control_climate_sample_settings(apu_ctx_t *ctx) {
     ctx->clmt_temp_setting = (int16_t)nvm_read_word(EE_CLIMATE_TEMP_SETTING);
     uint8_t sp = nvm_read_byte(EE_EVAP_FAN_SPEED);
-    ctx->evap_fan_speed = (sp > (uint8_t)FAN_HIGH) ? (uint8_t)FAN_HIGH : sp;
+    ctx->evap_fan_speed = (sp > 100u) ? 100u : sp;   /* percent 0..100 */
 }
 
 enum { CC_START_SETTLE = 0, CC_START_ENGINE, CC_MONITOR_TEMP, CC_START_COOL,
@@ -35,7 +35,7 @@ void control_climate_mode(apu_ctx_t *ctx) {
        evap_fan_speed from NVM every 1 s, so a HMI/Modbus speed change (reg 12)
        takes effect without re-entering cooling. (Was latched once at CC_EVAP_ON,
        which made runtime speed changes inert.) outputs_apply reads out.evap_speed. */
-    ctx->out.evap_speed = (fan_speed_t)ctx->evap_fan_speed;
+    ctx->out.evap_speed = ctx->evap_fan_speed;   /* percent 0..100 */
     switch (ctx->sub_state) {
         case CC_START_SETTLE:
             ctx->temp_display_state = TD_REAL_TIME;
