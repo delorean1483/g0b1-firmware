@@ -4,9 +4,12 @@
  *   PWM_EVAP_FAN      -> TIM2_CH1 = PC4  (evap fan speed, permille 0..1000)
  *   PWM_CONDENSER_FAN -> TIM2_CH2 = PC5  (condenser fan, OI-2 head-pressure ramp)
  *
- * TIM2 runs at ~1 kHz: 64 MHz / (PSC+1=64) / (ARR+1=1000) = 1000 Hz. The compare
- * value is derived from the live ARR (htim2.Init.Period) so the mapping stays
- * correct if the .ioc period changes: CCR = permille * (ARR+1) / 1000, i.e.
+ * TIM2 runs at ~45 Hz: 64 MHz / (PSC+1=1408) / (ARR+1=1000) = 45.45 Hz. This
+ * matches the PIC18's 22 ms fan-PWM period; the high-side PROFET (BTS50015-1)
+ * driving the inductive fan must be switched slowly — at 1 kHz its switching
+ * loss overheats the part and it can't fully drive the load. The compare value
+ * is derived from the live ARR (htim2.Init.Period) so the mapping stays correct
+ * if the .ioc period changes: CCR = permille * (ARR+1) / 1000, i.e.
  * permille==1000 -> CCR==ARR+1 (100 %), permille==0 -> CCR==0 (0 %).
  *
  * get() returns the last commanded permille (not re-derived from the CCR).

@@ -3,7 +3,8 @@
 
 /* Concrete STM32G0 TIM2 backend for the portable bsp_pwm service (App/services).
  *
- * TIM2 CH1 = PC4 (evap fan), CH2 = PC5 (condenser fan), ~1 kHz.
+ * TIM2 CH1 = PC4 (evap fan), CH2 = PC5 (condenser fan), ~45 Hz (PIC18 22 ms
+ * period; a slow rate is required to keep the high-side PROFET switching loss low).
  * Duty is permille 0..1000 (bsp_pwm_ch_t: PWM_EVAP_FAN=0, PWM_CONDENSER_FAN=1).
  *
  * Bench bring-up plan Task 4:

@@ -31,6 +31,11 @@ enum { CC_START_SETTLE = 0, CC_START_ENGINE, CC_MONITOR_TEMP, CC_START_COOL,
 #define CONDENSER_STUB_DUTY 1000u   /* OI-2: full airflow stub; head-pressure ramp deferred */
 
 void control_climate_mode(apu_ctx_t *ctx) {
+    /* Track the evap-fan speed live: control_climate_sample_settings refreshes
+       evap_fan_speed from NVM every 1 s, so a HMI/Modbus speed change (reg 12)
+       takes effect without re-entering cooling. (Was latched once at CC_EVAP_ON,
+       which made runtime speed changes inert.) outputs_apply reads out.evap_speed. */
+    ctx->out.evap_speed = (fan_speed_t)ctx->evap_fan_speed;
     switch (ctx->sub_state) {
         case CC_START_SETTLE:
             ctx->temp_display_state = TD_REAL_TIME;
@@ -75,7 +80,6 @@ void control_climate_mode(apu_ctx_t *ctx) {
         case CC_EVAP_ON:
             if (app_timer_expired(SCALE_SECOND, COMP_EVAP_DELAY_TMR)) {
                 ctx->out.evap_fan = true;
-                ctx->out.evap_speed = (fan_speed_t)ctx->evap_fan_speed;
                 app_timer_set(SCALE_SECOND, EVAP_FORCED_ON_TMR, 10);
                 app_timer_set(SCALE_MINUTE, DEFROST_CYCLE_TMR, 30);
                 ctx->sub_state = CC_CTRL_RUNNING;

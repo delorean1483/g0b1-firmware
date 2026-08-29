@@ -85,6 +85,18 @@ static void test_evap_on_turns_on_and_arms_defrost(void) {
     TEST_ASSERT_EQUAL_UINT8(8, ctx.sub_state);          /* CC_CTRL_RUNNING */
 }
 
+static void test_evap_speed_tracks_live_setting(void) {
+    /* Regression: a speed change must take effect while cooling is already
+       running, not stay latched at CC_EVAP_ON (HMI/Modbus reg 12 live control). */
+    ctx.sub_state = 8 /*CC_CTRL_RUNNING*/;
+    ctx.evap_fan_speed = FAN_MEDIUM;
+    control_climate_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(FAN_MEDIUM, ctx.out.evap_speed);
+    ctx.evap_fan_speed = FAN_HIGH;                       /* speed changed mid-run */
+    control_climate_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(FAN_HIGH, ctx.out.evap_speed);
+}
+
 static void test_ctrl_running_reaches_setpoint(void) {
     ctx.sub_state = 8 /*CC_CTRL_RUNNING*/; ctx.cool_mode = true;
     ctx.out.compressor_clutch = true;
@@ -239,6 +251,7 @@ int main(void) {
     RUN_TEST(test_comp_on_after_off_guard);
     RUN_TEST(test_comp_on_waits_for_off_guard);
     RUN_TEST(test_evap_on_turns_on_and_arms_defrost);
+    RUN_TEST(test_evap_speed_tracks_live_setting);
     RUN_TEST(test_ctrl_running_reaches_setpoint);
     RUN_TEST(test_evap_off_returns_to_monitor);
     RUN_TEST(test_evap_off_early_cool_clear);
