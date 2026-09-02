@@ -77,6 +77,13 @@ static void test_any_mode_write_exits_diag(void) {
     TEST_ASSERT_FALSE(ctx.out.compressor_clutch);
 }
 
+static void test_fw_version_reg2_is_read_only(void) {
+    uint16_t o = 0;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(2, &o));
+    TEST_ASSERT_EQUAL_UINT16(10000, o);   /* v1.0.0 -> 1*10000 + 0*100 + 0 */
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_write(2, 1));   /* read-only */
+}
+
 static void test_fan_auto_reg_roundtrip_and_range(void) {
     apu_ctx_t ctx; memset(&ctx, 0, sizeof ctx);
     mb_reg_reset();
@@ -100,6 +107,7 @@ int main(void) {
     RUN_TEST(test_temp_display_reg33_rw_and_range);
     RUN_TEST(test_mode_off_exits_diag);
     RUN_TEST(test_any_mode_write_exits_diag);
+    RUN_TEST(test_fw_version_reg2_is_read_only);
     RUN_TEST(test_fan_auto_reg_roundtrip_and_range);
     return UNITY_END();
 }
