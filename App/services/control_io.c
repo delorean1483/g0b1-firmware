@@ -34,11 +34,19 @@ static modbus_exc_t rd_td(uint16_t r, uint16_t *o)    { (void)r; *o = s_ctx->tem
 static modbus_exc_t wr_td(uint16_t r, uint16_t v)     { (void)r; if (v > TD_CS_SETTING) return MB_EXC_ILLEGAL_VALUE; s_ctx->temp_display_state = (uint8_t)v; return MB_EXC_NONE; }
 static modbus_exc_t rd_standby(uint16_t r, uint16_t *o) { (void)r; *o = s_ctx->standby_override ? 1u : 0u; return MB_EXC_NONE; }
 static modbus_exc_t wr_standby(uint16_t r, uint16_t v) { (void)r; s_ctx->standby_override = (v != 0u); return MB_EXC_NONE; }
+static modbus_exc_t rd_fan_auto(uint16_t r, uint16_t *o) { (void)r; *o = s_ctx->fan_auto ? 1u : 0u; return MB_EXC_NONE; }
+static modbus_exc_t wr_fan_auto(uint16_t r, uint16_t v) {
+    (void)r;
+    if (v > 1u) return MB_EXC_ILLEGAL_VALUE;
+    s_ctx->fan_auto = (v != 0u);
+    return MB_EXC_NONE;
+}
 
 void control_regs_register(apu_ctx_t *ctx) {
     s_ctx = ctx;
     mb_reg_bind(7,  rd_oil,  0);
     mb_reg_bind(8,  rd_ign,  0);
+    mb_reg_bind(9,  rd_fan_auto, wr_fan_auto);
     mb_reg_bind(10, rd_mode, wr_mode);
     mb_reg_bind(17, rd_err,  0);
     mb_reg_bind(18, rd_oilc, wr_oilc);

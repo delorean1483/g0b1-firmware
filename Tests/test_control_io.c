@@ -1,3 +1,4 @@
+#include <string.h>
 #include "unity.h"
 #include "control.h"
 #include "bsp_io.h"
@@ -58,6 +59,20 @@ static void test_temp_display_reg33_rw_and_range(void) {
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(33, 5));  /* > TD_CS_SETTING */
 }
 
+static void test_fan_auto_reg_roundtrip_and_range(void) {
+    apu_ctx_t ctx; memset(&ctx, 0, sizeof ctx);
+    mb_reg_reset();
+    control_regs_register(&ctx);
+    uint16_t o = 0xFF;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(9, 1));
+    TEST_ASSERT_TRUE(ctx.fan_auto);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(9, &o));
+    TEST_ASSERT_EQUAL_UINT16(1, o);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(9, 0));
+    TEST_ASSERT_FALSE(ctx.fan_auto);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(9, 2));   /* out of range */
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_debounced_oil_input_reaches_ctx_and_reg7);
@@ -65,5 +80,6 @@ int main(void) {
     RUN_TEST(test_op_mode_reg10_rw_drives_ctx);
     RUN_TEST(test_status_regs_are_read_only);
     RUN_TEST(test_temp_display_reg33_rw_and_range);
+    RUN_TEST(test_fan_auto_reg_roundtrip_and_range);
     return UNITY_END();
 }

@@ -62,6 +62,7 @@ typedef struct {
     int16_t  cabin_temperature;        /* degF, from M3 enclosure sensor (reg 1) */
     int16_t  clmt_temp_setting;        /* degF, from NVM EE_CLIMATE_TEMP_SETTING (reg 14) */
     uint8_t  evap_fan_speed;           /* percent 0..100, from NVM EE_EVAP_FAN_SPEED (reg 12) */
+    bool     fan_auto;                 /* reg 9: 1 = auto-fan from cabin/setpoint gap, 0 = manual reg-12 */
     uint8_t  compressor_on_timer;      /* seconds compressor ON (count-up, cap 255) */
     uint8_t  compressor_off_timer;     /* seconds compressor OFF (count-up, cap 255) */
     uint8_t  refregerant_check_counter;/* A/C low-pressure retry counter */
