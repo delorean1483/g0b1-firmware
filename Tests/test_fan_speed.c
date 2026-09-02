@@ -36,6 +36,19 @@ static void test_monotonic_within_bounds(void) {
     }
 }
 
+static void test_fan_auto_at_or_below_target_is_min(void) {
+    TEST_ASSERT_EQUAL_UINT8(32, fan_auto_pct(70, 70));   /* at target */
+    TEST_ASSERT_EQUAL_UINT8(32, fan_auto_pct(68, 70));   /* below target (cooling unit) */
+}
+static void test_fan_auto_ramps_with_gap(void) {
+    TEST_ASSERT_EQUAL_UINT8(43, fan_auto_pct(71, 70));   /* +1F: 32 + 68*1/6 = 43 (trunc) */
+    TEST_ASSERT_EQUAL_UINT8(66, fan_auto_pct(73, 70));   /* +3F: 32 + 68*3/6 = 66 */
+}
+static void test_fan_auto_saturates_at_100(void) {
+    TEST_ASSERT_EQUAL_UINT8(100, fan_auto_pct(76, 70));  /* +6F: full */
+    TEST_ASSERT_EQUAL_UINT8(100, fan_auto_pct(90, 70));  /* +20F: clamped */
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_off_is_zero);
@@ -44,5 +57,8 @@ int main(void) {
     RUN_TEST(test_midpoint_is_linear);
     RUN_TEST(test_over_100_clamps_to_full);
     RUN_TEST(test_monotonic_within_bounds);
+    RUN_TEST(test_fan_auto_at_or_below_target_is_min);
+    RUN_TEST(test_fan_auto_ramps_with_gap);
+    RUN_TEST(test_fan_auto_saturates_at_100);
     return UNITY_END();
 }
