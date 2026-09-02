@@ -7,7 +7,7 @@
 
 typedef enum {
     OP_POWER_UP = 0, OP_OFF, OP_ENGINE_START, OP_CLIMATE, OP_BATTERY,
-    OP_COLD_STORAGE, OP_ERROR_SHUTDOWN, OP_STATE_COUNT
+    OP_COLD_STORAGE, OP_ERROR_SHUTDOWN, OP_DIAG, OP_STATE_COUNT
 } control_op_state_t;
 
 typedef enum {
@@ -91,6 +91,8 @@ void control_engine_start_mode(apu_ctx_t *ctx);   /* register for OP_ENGINE_STAR
 void control_climate_mode(apu_ctx_t *ctx);   /* register for OP_CLIMATE */
 void control_battery_mode(apu_ctx_t *ctx);   /* register for OP_BATTERY */
 void control_error_shutdown_mode(apu_ctx_t *ctx);   /* register for OP_ERROR_SHUTDOWN */
+void control_diag_mode(apu_ctx_t *ctx);       /* register for OP_DIAG */
+void control_diag_register(apu_ctx_t *ctx);   /* binds regs 49/50/41, resets state */
 void control_inputs_init(apu_ctx_t *ctx);
 void control_inputs_service(apu_ctx_t *ctx);
 void control_sample_sensors(apu_ctx_t *ctx);

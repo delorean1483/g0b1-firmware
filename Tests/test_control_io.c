@@ -59,6 +59,24 @@ static void test_temp_display_reg33_rw_and_range(void) {
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(33, 5));  /* > TD_CS_SETTING */
 }
 
+static void test_mode_off_exits_diag(void) {
+    ctx.op_state = OP_DIAG;
+    ctx.out.compressor_clutch = true;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(10, MODE_OFF));
+    TEST_ASSERT_EQUAL_INT(OP_OFF, ctx.op_state);
+    TEST_ASSERT_FALSE(ctx.out.compressor_clutch);
+}
+
+static void test_any_mode_write_exits_diag(void) {
+    /* I3: ANY reg-10 write while in OP_DIAG must be a clean exit -- not just
+     * MODE_OFF -- so diag-energized outputs never bleed into another mode. */
+    ctx.op_state = OP_DIAG;
+    ctx.out.compressor_clutch = true;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(10, MODE_CLIMATE));
+    TEST_ASSERT_EQUAL_INT(OP_OFF, ctx.op_state);
+    TEST_ASSERT_FALSE(ctx.out.compressor_clutch);
+}
+
 static void test_fan_auto_reg_roundtrip_and_range(void) {
     apu_ctx_t ctx; memset(&ctx, 0, sizeof ctx);
     mb_reg_reset();
@@ -80,6 +98,8 @@ int main(void) {
     RUN_TEST(test_op_mode_reg10_rw_drives_ctx);
     RUN_TEST(test_status_regs_are_read_only);
     RUN_TEST(test_temp_display_reg33_rw_and_range);
+    RUN_TEST(test_mode_off_exits_diag);
+    RUN_TEST(test_any_mode_write_exits_diag);
     RUN_TEST(test_fan_auto_reg_roundtrip_and_range);
     return UNITY_END();
 }

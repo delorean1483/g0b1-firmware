@@ -13,7 +13,9 @@ void control_app_init(void) {
     control_register_mode(OP_CLIMATE, control_climate_mode);
     control_register_mode(OP_BATTERY, control_battery_mode);
     control_register_mode(OP_ERROR_SHUTDOWN, control_error_shutdown_mode);
+    control_register_mode(OP_DIAG, control_diag_mode);
     control_regs_register(&s_ctx);
+    control_diag_register(&s_ctx);
 }
 
 void control_10ms_slot(void) {

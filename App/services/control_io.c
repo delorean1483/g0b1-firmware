@@ -24,7 +24,16 @@ void control_inputs_service(apu_ctx_t *ctx) {
 static modbus_exc_t rd_oil(uint16_t r, uint16_t *o)   { (void)r; *o = s_ctx->in_oil_pressure_ok; return MB_EXC_NONE; }
 static modbus_exc_t rd_ign(uint16_t r, uint16_t *o)   { (void)r; *o = s_ctx->in_truck_ignition;  return MB_EXC_NONE; }
 static modbus_exc_t rd_mode(uint16_t r, uint16_t *o)  { (void)r; *o = s_ctx->mode_request;        return MB_EXC_NONE; }
-static modbus_exc_t wr_mode(uint16_t r, uint16_t v)   { (void)r; if (v > MODE_BATTERY) return MB_EXC_ILLEGAL_VALUE; s_ctx->mode_request = (uint8_t)v; return MB_EXC_NONE; }
+static modbus_exc_t wr_mode(uint16_t r, uint16_t v) {
+    (void)r;
+    if (v > MODE_BATTERY) return MB_EXC_ILLEGAL_VALUE;
+    if (s_ctx->op_state == OP_DIAG) {   /* any reg-10 write is a clean exit from Component Test */
+        control_deenergize_all(s_ctx);
+        s_ctx->op_state = OP_OFF;
+    }
+    s_ctx->mode_request = (uint8_t)v;
+    return MB_EXC_NONE;
+}
 static modbus_exc_t rd_err(uint16_t r, uint16_t *o)   { (void)r; *o = s_ctx->error_state;         return MB_EXC_NONE; }
 static modbus_exc_t rd_oilc(uint16_t r, uint16_t *o)  { (void)r; *o = s_ctx->oil_change_state;    return MB_EXC_NONE; }
 static modbus_exc_t wr_oilc(uint16_t r, uint16_t v)   { (void)r; if (v > OIL_WARNING_DISMISSED) return MB_EXC_ILLEGAL_VALUE; s_ctx->oil_change_state = (uint8_t)v; return MB_EXC_NONE; }
