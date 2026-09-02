@@ -239,6 +239,24 @@ static void test_tail_engine_over_temp_shuts_down(void) {
     TEST_ASSERT_EQUAL_INT(OP_ERROR_SHUTDOWN, ctx.op_state);
 }
 
+static void test_climate_manual_fan_unchanged(void) {
+    ctx.sub_state = 8 /*CC_CTRL_RUNNING*/;
+    ctx.fan_auto = false; ctx.evap_fan_speed = 40;
+    control_climate_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(40, ctx.out.evap_speed);   /* manual path preserved */
+}
+
+static void test_climate_auto_fan_tracks_gap(void) {
+    ctx.sub_state = 8 /*CC_CTRL_RUNNING*/;
+    ctx.fan_auto = true; ctx.clmt_temp_setting = 70;
+    ctx.cabin_temperature = 76;                          /* +6F -> 100% */
+    control_climate_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(100, ctx.out.evap_speed);
+    ctx.cabin_temperature = 70;                          /* at target -> MIN */
+    control_climate_mode(&ctx);
+    TEST_ASSERT_EQUAL_UINT8(32, ctx.out.evap_speed);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_settle_arms_1s_and_advances);
@@ -267,5 +285,7 @@ int main(void) {
     RUN_TEST(test_tail_high_pressure_trips_rechk);
     RUN_TEST(test_tail_normal_pressure_clears_counter);
     RUN_TEST(test_tail_engine_over_temp_shuts_down);
+    RUN_TEST(test_climate_manual_fan_unchanged);
+    RUN_TEST(test_climate_auto_fan_tracks_gap);
     return UNITY_END();
 }

@@ -34,8 +34,11 @@ void control_climate_mode(apu_ctx_t *ctx) {
     /* Track the evap-fan speed live: control_climate_sample_settings refreshes
        evap_fan_speed from NVM every 1 s, so a HMI/Modbus speed change (reg 12)
        takes effect without re-entering cooling. (Was latched once at CC_EVAP_ON,
-       which made runtime speed changes inert.) outputs_apply reads out.evap_speed. */
-    ctx->out.evap_speed = ctx->evap_fan_speed;   /* percent 0..100 */
+       which made runtime speed changes inert.) outputs_apply reads out.evap_speed.
+       AUTO (reg 9) drives fan from the cabin/setpoint gap; else the manual reg-12 value. */
+    ctx->out.evap_speed = ctx->fan_auto
+                        ? fan_auto_pct(ctx->cabin_temperature, ctx->clmt_temp_setting)
+                        : ctx->evap_fan_speed;   /* percent 0..100 */
     switch (ctx->sub_state) {
         case CC_START_SETTLE:
             ctx->temp_display_state = TD_REAL_TIME;
