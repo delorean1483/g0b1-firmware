@@ -26,12 +26,14 @@ void test_invalid_cfg_recovers(void) {
     bootcfg_t c = base_cfg();
     boot_decision_t d = boot_decide(&c, 0, 0, fake_ok, 0);
     TEST_ASSERT_EQUAL_INT(BOOT_ACTION_ENTER_UPDATE, d.action);
+    TEST_ASSERT_EQUAL_INT(0, d.cfg_dirty);
 }
 void test_normal_boot_active(void) {
     bootcfg_t c = base_cfg();
     boot_decision_t d = boot_decide(&c, 1, 0, fake_ok, 0);
     TEST_ASSERT_EQUAL_INT(BOOT_ACTION_JUMP_SLOT, d.action);
     TEST_ASSERT_EQUAL_INT(SLOT_A, d.slot);
+    TEST_ASSERT_EQUAL_INT(0, d.cfg_dirty);
 }
 void test_active_bad_falls_to_other(void) {
     bootcfg_t c = base_cfg();
@@ -60,6 +62,7 @@ void test_trial_exceeds_limit_reverts_to_committed_other(void) {
     TEST_ASSERT_EQUAL_INT(BOOT_ACTION_JUMP_SLOT, d.action);
     TEST_ASSERT_EQUAL_INT(SLOT_B, d.slot);
     TEST_ASSERT_EQUAL_UINT8(SLOT_STATE_BAD, c.slot[SLOT_A].state);
+    TEST_ASSERT_EQUAL_UINT16(SLOT_B, c.active_slot);
 }
 void test_trial_exceeds_no_fallback_recovers(void) {
     bootcfg_t c = base_cfg();
@@ -68,11 +71,13 @@ void test_trial_exceeds_no_fallback_recovers(void) {
     boot_decision_t d = boot_decide(&c, 1, 0, fake_ok, 0);
     TEST_ASSERT_EQUAL_INT(BOOT_ACTION_ENTER_UPDATE, d.action);
     TEST_ASSERT_EQUAL_UINT8(SLOT_STATE_BAD, c.slot[SLOT_A].state);
+    TEST_ASSERT_EQUAL_INT(1, d.cfg_dirty);
 }
 void test_both_invalid_recovers(void) {
     bootcfg_t c = base_cfg(); g_ok_mask = 0x0;
     boot_decision_t d = boot_decide(&c, 1, 0, fake_ok, 0);
     TEST_ASSERT_EQUAL_INT(BOOT_ACTION_ENTER_UPDATE, d.action);
+    TEST_ASSERT_EQUAL_INT(0, d.cfg_dirty);
 }
 
 int main(void) {
