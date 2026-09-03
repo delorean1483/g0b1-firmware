@@ -59,11 +59,28 @@ void test_build_nak(void) {
     TEST_ASSERT_EQUAL_UINT16(3, n);
     TEST_ASSERT_EQUAL_HEX8(0xC2, resp[1]); TEST_ASSERT_EQUAL_HEX8(BL_ERR_CRC, resp[2]);
 }
+void test_build_ack(void) {
+    uint8_t resp[8];
+    uint16_t n = bl_build_ack(resp, BL_FC_CONTROL, BL_SUB_ERASE);
+    TEST_ASSERT_EQUAL_UINT16(4, n);
+    TEST_ASSERT_EQUAL_HEX8(1, resp[0]); TEST_ASSERT_EQUAL_HEX8(BL_FC_CONTROL, resp[1]);
+    TEST_ASSERT_EQUAL_HEX8(BL_SUB_ERASE, resp[2]); TEST_ASSERT_EQUAL_HEX8(0x00, resp[3]);
+}
+void test_build_status(void) {
+    uint8_t resp[16];
+    uint16_t n = bl_build_status(resp, 1u, 0x00012345u);
+    TEST_ASSERT_EQUAL_UINT16(8, n);
+    TEST_ASSERT_EQUAL_HEX8(BL_FC_CONTROL, resp[1]); TEST_ASSERT_EQUAL_HEX8(BL_SUB_STATUS, resp[2]);
+    TEST_ASSERT_EQUAL_HEX8(1, resp[3]);
+    TEST_ASSERT_EQUAL_HEX8(0x00, resp[4]); TEST_ASSERT_EQUAL_HEX8(0x01, resp[5]);
+    TEST_ASSERT_EQUAL_HEX8(0x23, resp[6]); TEST_ASSERT_EQUAL_HEX8(0x45, resp[7]);
+}
 
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_parse_control_info); RUN_TEST(test_parse_control_verify_fields);
     RUN_TEST(test_parse_data); RUN_TEST(test_parse_data_len_overflow_rejected);
     RUN_TEST(test_build_info); RUN_TEST(test_build_data_ack); RUN_TEST(test_build_nak);
+    RUN_TEST(test_build_ack); RUN_TEST(test_build_status);
     return UNITY_END();
 }
