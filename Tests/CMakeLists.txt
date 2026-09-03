@@ -125,3 +125,4 @@ add_unity_test(test_control_runtime_integration test_control_runtime_integration
     ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c
     ../App/services/control_diag.c
     fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c fakes/fake_nor.c)
+add_unity_test(test_fake_iflash test_fake_iflash.c fakes/fake_iflash.c)
