@@ -9,6 +9,17 @@
 
 _Static_assert(sizeof(bootcfg_t) % 8u == 0u, "dword");
 
+/* Pin the raw-byte layout: bootcfg_t is exchanged as bytes between the
+ * separately-linked bootloader and app (both compile this same header) and
+ * the tools/provision_boot.md seed script's hand-packed struct.pack layout.
+ * If any of these ever fire, something changed the field order/padding --
+ * stop and re-derive the seed-record byte offsets, don't just silence it. */
+_Static_assert(offsetof(bootcfg_t, active_slot) == 6, "layout");
+_Static_assert(offsetof(bootcfg_t, seq) == 8, "layout");
+_Static_assert(offsetof(bootcfg_t, slot) == 12, "layout");
+_Static_assert(offsetof(bootcfg_t, trial_count) == 36, "layout");
+_Static_assert(offsetof(bootcfg_t, crc32) == 44, "layout");
+
 uint32_t bootcfg_slot_base(slot_id_t s) { return (s == SLOT_A) ? SLOT_A_BASE : SLOT_B_BASE; }
 
 static uint32_t page_addr(uint32_t page) { return CFG_BASE + page * PAGE_SIZE; }

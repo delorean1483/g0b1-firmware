@@ -84,6 +84,17 @@ BL_SUB_STATUS = 0x06
 BL_ERR_NAMES = {1: "BL_ERR_STATE", 2: "BL_ERR_RANGE", 3: "BL_ERR_CRC", 4: "BL_ERR_FLASH"}
 BL_CHUNK_DEFAULT = 240  # BL_CHUNK_MAX; INFO's reported chunk_max is authoritative
 
+# ERASE erases all 112 pages of a 224 KB slot SYNCHRONOUSLY on-target before
+# it ACKs the FC 0x41 ERASE request (App/services/bl_session.c:erase_target)
+# -- roughly 2.5-4.5s at ~22-40ms/page on the G0. The normal per-frame
+# --timeout (default 2.0s) is too short for this one reply and would time
+# out before the erase even finishes; ERASE (and, defensively, COMMIT, which
+# also does a flash write + save before it ACKs) always use this dedicated,
+# much longer timeout regardless of --timeout. ERASE is NOT idempotent-cheap
+# to retry -- every retry re-erases the whole slot from scratch -- so this
+# alone (not a bigger retry count) is the fix for "erase never completes".
+ERASE_TIMEOUT_S = 10.0
+
 
 class BLError(Exception):
     """Any protocol-level failure (malformed frame, bad CRC, exhausted retries)."""
@@ -230,8 +241,20 @@ class Link:
             return _strip_and_check_crc(hdr + sub_b + rest)
         raise BLError(f"unexpected fc 0x{fc:02X} in bootloader reply")
 
-    def _expect_control_ack(self, sub: int):
-        body = self._recv_bl_frame()
+    def _expect_control_ack(self, sub: int, timeout: float = None):
+        """Read one CONTROL ack/NAK. `timeout`, if given, temporarily
+        overrides the link's normal per-frame timeout for this one read
+        (used by ERASE/COMMIT, which can take several seconds on-target --
+        see ERASE_TIMEOUT_S) and is always restored afterward."""
+        if timeout is None:
+            body = self._recv_bl_frame()
+        else:
+            old_timeout = self.ser.timeout
+            self.ser.timeout = timeout
+            try:
+                body = self._recv_bl_frame()
+            finally:
+                self.ser.timeout = old_timeout
         if body[1] == (BL_FC_CONTROL | 0x80):
             raise BLNak(body[2])
         if body[1] != BL_FC_CONTROL or len(body) != 4 or body[2] != sub or body[3] != 0x00:
@@ -254,7 +277,7 @@ class Link:
 
     def bl_erase(self):
         self._send(bytes([SLAVE_ADDR, BL_FC_CONTROL, BL_SUB_ERASE]))
-        self._expect_control_ack(BL_SUB_ERASE)
+        self._expect_control_ack(BL_SUB_ERASE, timeout=ERASE_TIMEOUT_S)
 
     def bl_data(self, offset: int, chunk: bytes):
         req = (bytes([SLAVE_ADDR, BL_FC_DATA]) + offset.to_bytes(4, "big")
@@ -277,7 +300,9 @@ class Link:
 
     def bl_commit(self):
         self._send(bytes([SLAVE_ADDR, BL_FC_CONTROL, BL_SUB_COMMIT]))
-        self._expect_control_ack(BL_SUB_COMMIT)
+        # Defensively long too: COMMIT does a flash program + bootcfg_save()
+        # before it ACKs (App/services/bl_session.c:handle_commit).
+        self._expect_control_ack(BL_SUB_COMMIT, timeout=ERASE_TIMEOUT_S)
 
 
 def _retry(fn, max_retries: int, label: str):
@@ -327,7 +352,8 @@ def run(args) -> int:
             raise BLError(f"image ({len(image)} B) exceeds slot size ({info['slot_size']} B)")
         chunk_max = info["chunk_max"]
 
-        print("ERASE...")
+        print(f"ERASE... (synchronous on-target, can take a few seconds; "
+              f"using a {ERASE_TIMEOUT_S}s reply timeout)")
         _retry(link.bl_erase, args.max_retries, "ERASE")
 
         print(f"streaming {len(image)} bytes in {chunk_max}-byte chunks...")
@@ -369,7 +395,12 @@ def main() -> int:
                      help="the .bin for the INACTIVE slot (INFO says which one -- "
                           "trust it over the filename, see docs/remote-update.md Sec.4)")
     ap.add_argument("--baud", type=int, default=BAUD)
-    ap.add_argument("--timeout", type=float, default=2.0, help="per-frame reply timeout (s)")
+    ap.add_argument("--timeout", type=float, default=2.0,
+                     help="per-frame reply timeout (s) for INFO/DATA/register reads. "
+                          "Does NOT apply to ERASE or COMMIT, which always use a "
+                          f"dedicated {ERASE_TIMEOUT_S}s timeout regardless of this "
+                          "value -- ERASE erases the whole slot synchronously "
+                          "on-target before it ACKs (~2.5-4.5s on the G0)")
     ap.add_argument("--reset-wait", type=float, default=2.0,
                      help="seconds to wait after enter-bootloader / after COMMIT "
                           "for the device to reset and come back on the bus")
