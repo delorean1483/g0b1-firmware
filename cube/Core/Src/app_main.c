@@ -20,8 +20,20 @@
 #include "mbp_sensors.h"     /* portable sensors Modbus provider (regs 1/3/6/38/51) */
 #include "control.h"         /* Task 11: control app init + 10ms/1s/1min slots (App/services) */
 #include "drv_modbus_uart.h" /* Task 5: USART1 RS-485 RTU transport */
+#include "boot_magic.h"      /* Task 12: shared .noinit reset-magic word (g_boot_magic) */
+#include "boot_decision.h"   /* Task 12/13: BOOT_MAGIC_ENTER */
+#include "mbp_boot.h"         /* Task 13: reg-35 enter-bootloader Modbus command */
+#include "app_confirm.h"      /* Task 14: self-confirm active A/B slot when healthy */
+#include "drv_iflash.h"       /* Task 7: internal-flash backend (bootcfg store) */
 
 extern IWDG_HandleTypeDef hiwdg;  /* Task 10: CubeMX-generated (MX_IWDG_Init, ~2 s) */
+
+/* Task 12: definition (once) of the app-side .noinit reset-magic word;
+ * declared extern in boot_magic.h. Same section + physical address
+ * (0x20023FE0, per every slot linker script) as the bootloader's own
+ * g_boot_magic (boot/src/boot_main.c) — this is how the app hands the
+ * bootloader a "please enter update mode" request across a reset. */
+volatile uint32_t g_boot_magic __attribute__((section(".noinit")));
 
 /* ── Board revision (PC3 differs between EF-G0B1R R0 and R1) ─────────────────
  * R0: PC3 = VCC_EN — drives a load switch (Q2) that powers the 3P3_VCC rail
@@ -75,6 +87,61 @@ static void sys_reset(void)
     NVIC_SystemReset();   /* never returns */
 }
 
+/* Task 13 — reg-35 enter-bootloader command, wired via mbp_boot_register()
+ * below. mbp_boot's wr_boot() calls engine_running() first (refusing while
+ * it is non-zero) and only calls enter_bl() otherwise. */
+
+/* Real engine-running predicate: control_app_ctx()->engine_op_status is the
+ * exact field bound read-only to Modbus reg 22 (control_io.c: rd_eng /
+ * mb_reg_bind(22, ...)) and is set ST_RUNNING only once engine start
+ * completes (control_engine_start.c), ST_OFF everywhere else (control_off,
+ * control_powerup, control_error_shutdown's default case, control_init) —
+ * i.e. it is already the clean, existing "is the engine actually running"
+ * accessor the spec's reg-22 citation points at. Using it directly avoids
+ * adding a new control-layer accessor: control_app_ctx() is already a
+ * public, app-global accessor (App/services/control.h) exposing the whole
+ * apu_ctx_t. */
+static int app_engine_running(void)
+{
+    return control_app_ctx()->engine_op_status == ST_RUNNING;
+}
+
+/* Sets the reset-magic word and resets — the bootloader (boot_decision.c)
+ * sees BOOT_MAGIC_ENTER on the next boot and enters update mode instead of
+ * jumping to the active app slot. */
+static void app_enter_bl(void)
+{
+    g_boot_magic = BOOT_MAGIC_ENTER;
+    NVIC_SystemReset();   /* never returns */
+}
+
+/* Task 14 — health predicate for app_confirm_tick(), sampled once per 1 s
+ * control slot (app_1s_slot() below). "Healthy" = the control state machine
+ * is not mid/post error-shutdown (op_state != OP_ERROR_SHUTDOWN and
+ * error_state == ERR_NONE — control_error_shutdown.c/control_off.c are
+ * where error_state is ever cleared back to ERR_NONE) AND the coolant/ext
+ * sensor channel is not flagging its short-to-ground fault sentinel
+ * (sensors_get_ext_state() == SENSOR_ON, per sensors.h / sensors.c
+ * sensors_coolant_temp_f()). Reuses the existing control_app_ctx() /
+ * sensors_get_ext_state() accessors — no new control-layer code needed. */
+static int app_is_healthy(void)
+{
+    const apu_ctx_t *ctx = control_app_ctx();
+    return (ctx->op_state != OP_ERROR_SHUTDOWN)
+        && (ctx->error_state == ERR_NONE)
+        && (sensors_get_ext_state() == SENSOR_ON);
+}
+
+/* Task 14 wrapper: run the real 1 s control slot, then feed its result into
+ * the self-confirm health window. Registered on SLOT_1S below instead of
+ * control_1s_slot directly, so all bootloader-facing wiring stays local to
+ * app_main.c. */
+static void app_1s_slot(void)
+{
+    control_1s_slot();
+    app_confirm_tick(app_is_healthy());
+}
+
 void app_main(void)
 {
     /* Task 10 — IWDG is already running (MX_IWDG_Init, ~2 s). In debug builds,
@@ -112,6 +179,13 @@ void app_main(void)
      * reads the journal shadow and factory-inits a blank part. */
     nvm_init(drv_s25fl064_backend());
 
+    /* Task 14 — self-confirm: load the A/B boot-config from internal flash
+     * and arm the healthy-uptime confirm window if the active slot is still
+     * TRIAL. Must run before app_1s_slot() (registered below) can call
+     * app_confirm_tick(); drv_iflash_backend() needs no separate init (plain
+     * HAL flash, always addressable once the core is running). */
+    app_confirm_init(drv_iflash_backend());
+
     /* Task 7 — RTC backend (MCP7940N over I2C1). rtc_init only stashes the
      * backend; the rtc service starts the oscillator (ST) and enables battery
      * backup (VBATEN) on the first set-time. Bound before its Modbus provider. */
@@ -139,6 +213,7 @@ void app_main(void)
      * regs are bound by control_app_init() below; reception starts after. */
     mb_engine_init();
     mbp_sys_register(sys_reset);      /* Task 10: reg-34 write -> NVIC_SystemReset */
+    mbp_boot_register(app_engine_running, app_enter_bl); /* Task 13: reg-35 enter-bootloader */
     mbp_nvm_register();               /* persisted regs (runtime hrs, settings, flags) */
     mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
     mbp_sensors_register(drv_rpm_source()); /* Task 8/9: temp/batt regs 1/3/6/51 + reg 38 live RPM */
@@ -159,7 +234,7 @@ void app_main(void)
      *   1 min : runtime-hour accounting + oil-change checks */
     sched_register(SLOT_10MS,  control_10ms_slot);
     sched_register(SLOT_100MS, drv_bsp_adc_drain);
-    sched_register(SLOT_1S,    control_1s_slot);
+    sched_register(SLOT_1S,    app_1s_slot);   /* Task 14: control_1s_slot() + app_confirm_tick() */
     sched_register(SLOT_1MIN,  control_1min_slot);
 
     /* Task 10 (bench fix) — arm the IWDG HERE, after all boot init has run
