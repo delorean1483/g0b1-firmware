@@ -6,7 +6,7 @@
 #include "boot_jump.h"
 #include "stm32g0xx_hal.h"
 
-void boot_jump_to_slot(uint32_t slot_base)
+__attribute__((noreturn)) void boot_jump_to_slot(uint32_t slot_base)
 {
   uint32_t sp = *(volatile uint32_t *)(slot_base + 0u);
   uint32_t pc = *(volatile uint32_t *)(slot_base + 4u);
@@ -23,5 +23,10 @@ void boot_jump_to_slot(uint32_t slot_base)
   SCB->VTOR = slot_base;
   __set_MSP(sp);
   __enable_irq();
-  ((void (*)(void))pc)();           /* never returns */
+  ((void (*)(void))pc)();           /* branch to the app; never returns */
+
+  /* Trap: the clocks and VTOR are already torn down, so if the app ever
+     returned we must NOT fall through into the caller (boot_uart_init /
+     bl_update_mode). Spin here instead; the IWDG will reset the MCU. */
+  for (;;) { }
 }

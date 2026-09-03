@@ -90,6 +90,18 @@ uint16_t boot_uart_recv_frame(uint8_t *buf, uint16_t max, uint32_t timeout_ms)
     uint8_t b;
     HAL_IWDG_Refresh(&hiwdg);
 
+    /* Absolute cap on the whole call, checked UNCONDITIONALLY every iteration.
+       On a continuously noisy/contended bus HAL_UART_Receive can keep returning
+       HAL_OK, so a budget check confined to the idle/error branch would never
+       be reached and this loop would refresh the IWDG forever (defeating the
+       watchdog). Bounding here guarantees the call returns within timeout_ms; a
+       legitimate frame (~260 ms max at 9600) still completes via the idle-gap
+       path well before the caller's 1 s budget. */
+    if ((uint32_t)(HAL_GetTick() - start) >= timeout_ms)
+    {
+      return 0;
+    }
+
     HAL_StatusTypeDef st = HAL_UART_Receive(&huart, &b, 1u, RTU_GAP_MS);
     if (st == HAL_OK)
     {
@@ -97,7 +109,7 @@ uint16_t boot_uart_recv_frame(uint8_t *buf, uint16_t max, uint32_t timeout_ms)
       {
         buf[idx++] = b;
       }
-      /* still receiving — keep going, do not consult the idle budget */
+      /* still receiving — keep going */
     }
     else
     {
@@ -108,10 +120,6 @@ uint16_t boot_uart_recv_frame(uint8_t *buf, uint16_t max, uint32_t timeout_ms)
         return idx;                    /* a complete RTU frame */
       }
       idx = 0;                         /* discard a runt / line noise */
-      if ((uint32_t)(HAL_GetTick() - start) >= timeout_ms)
-      {
-        return 0;                      /* idle budget exhausted */
-      }
     }
   }
 }
@@ -119,12 +127,15 @@ uint16_t boot_uart_recv_frame(uint8_t *buf, uint16_t max, uint32_t timeout_ms)
 void boot_uart_send(const uint8_t *buf, uint16_t len)
 {
   HAL_GPIO_WritePin(DE_PORT, DE_PIN, GPIO_PIN_SET);          /* DE high: drive bus */
-  (void)HAL_UART_Transmit(&huart, (uint8_t *)buf, len, 1000u);
-  /* HAL_UART_Transmit already waits for TC before returning; re-check to be
-     certain the last stop bit has left the shifter before releasing the bus. */
-  while (__HAL_UART_GET_FLAG(&huart, UART_FLAG_TC) == RESET)
-  {
-    HAL_IWDG_Refresh(&hiwdg);
-  }
-  HAL_GPIO_WritePin(DE_PORT, DE_PIN, GPIO_PIN_RESET);        /* DE low: release bus */
+
+  /* HAL_UART_Transmit polls TXE per byte and then waits for TC on the last
+     byte, all bounded by the 1000 ms timeout budget — so it is already the
+     bounded TC wait. On HAL_OK the last stop bit has left the shifter; on any
+     non-OK result (a real UART/RS-485 fault) we must NOT spin re-checking TC
+     (that would feed the IWDG forever with DE stuck high, jamming the bus). We
+     drop DE and return on EVERY path either way. */
+  HAL_StatusTypeDef st = HAL_UART_Transmit(&huart, (uint8_t *)buf, len, 1000u);
+  (void)st;
+
+  HAL_GPIO_WritePin(DE_PORT, DE_PIN, GPIO_PIN_RESET);        /* DE low on every exit path */
 }
