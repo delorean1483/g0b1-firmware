@@ -35,18 +35,23 @@ static void advance(uint16_t total_ms) {
    not set on the ctx directly (the slot overwrites them). */
 static void test_full_start_to_climate_handoff(void) {
     apu_ctx_t *c = control_app_ctx();
-    /* Hot external temp so the glow-plug window is 0 s. Drive the M3 ext-NTC sensor:
-       a raw count of 239 (just above NTC_OVERMAX_CNT) interpolates to ~246 degF (>=122). */
-    for (int i = 0; i < SENS_AVG_DEFAULT; i++) sensors_add_sample(SENS_EXT, 239);
+    /* Glow + cabin both come from the enclosure PTC now (PA4 is coolant). Pick a
+       raw count of 2024 -> ~70 degF: in the climate deadband (setpoint 70 +/-3) so
+       the handoff settles at CC_MONITOR_TEMP, and in the 68..104 degF glow band so
+       the glow window is 10 s. */
+    for (int i = 0; i < SENS_AVG_ENCL; i++) sensors_add_sample(SENS_ENCL, 2024);
     /* Oil pressure good: drive the fake input high; it debounces over 500 ms, well before the
-       ~5 s point where CHECK_PRESSURE reads it. */
+       CHECK_PRESSURE point. */
     fake_bsp_io_set_input(IN_OIL_PRESSURE, true);
     c->op_state = OP_ENGINE_START;
     c->op_state_previous = OP_CLIMATE;
     c->engine_temp_ok = true;             /* not overwritten by any slot step yet (sensor deferred) */
+    c->clmt_temp_setting = 70;            /* match cabin (70F) so climate settles at MONITOR, not
+                                             cooling; only SLOT_10MS is registered so the 1s NVM
+                                             settings sample never overwrites this. */
     c->sub_state = 0;
 
-    advance(16000);   /* covers glow(0s) + 1s fuel hold + 4s crank + 10s pressure wait + handoff */
+    advance(28000);   /* covers glow(10s) + 1s fuel hold + 4s crank + 10s pressure wait + handoff */
     TEST_ASSERT_EQUAL_INT(OP_CLIMATE, c->op_state);        /* handed back to climate */
     TEST_ASSERT_EQUAL_UINT8(ST_RUNNING, c->engine_op_status);
     TEST_ASSERT_EQUAL_UINT8(2, c->sub_state);             /* CC_MONITOR_TEMP entry */

@@ -54,8 +54,9 @@ typedef struct {
     /* --- M6b engine-start --- */
     uint8_t  op_state_previous;        /* control_op_state_t: mode that invoked engine start */
     uint8_t  attempted_start_counter;  /* start attempts this cycle */
-    int16_t  external_temperature;     /* degF, from M3 sensors (glow-plug timing) */
-    uint8_t  ext_temp_sensor_state;    /* SENSOR_ON/OFF from M3 */
+    int16_t  external_temperature;     /* degF ambient for glow-plug timing; now fed from the
+                                          enclosure PTC (PA4 net repurposed to coolant) */
+    uint8_t  ext_temp_sensor_state;    /* SENSOR_ON/OFF (enclosure source is always ON) */
     bool     engine_temp_ok;           /* false => over-temp fault (sensor derivation deferred; default true) */
     bool     standby_override;         /* Modbus reg 32; when true, suppress standby shutdown */
     /* --- M6c climate --- */

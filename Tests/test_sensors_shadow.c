@@ -26,8 +26,8 @@ static void test_partial_window_holds_previous(void) {
 
 static void test_ext_adc_and_temp_and_state(void) {
     for (int i = 0; i < SENS_AVG_DEFAULT; i++) sensors_add_sample(SENS_EXT, 1971);
-    TEST_ASSERT_EQUAL_UINT16(1971, sensors_get_ext_adc());   /* reg 3 raw avg */
-    TEST_ASSERT_EQUAL_INT16(32, sensors_get_ext_temp_f());   /* reg 51 degF */
+    TEST_ASSERT_EQUAL_UINT16(1971, sensors_get_ext_adc());    /* reg 3 raw avg */
+    TEST_ASSERT_EQUAL_INT16(133, sensors_get_ext_temp_f());   /* reg 51 coolant degF */
     TEST_ASSERT_EQUAL_UINT8(SENSOR_ON, sensors_get_ext_state());
 }
 

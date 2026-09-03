@@ -1,6 +1,7 @@
 #include "sensors.h"
 #define SENSORS_CAL_OWNER   /* emit the lookup-table definitions in this TU */
 #include "sensors_cal.h"
+#include <math.h>           /* logf for the coolant-sender Steinhart-Hart */
 
 typedef struct {
     uint32_t accum;
@@ -47,7 +48,7 @@ void sensors_add_sample(sensor_ch_t ch, uint16_t raw) {
     c->count = 0;
     switch (ch) {
         case SENS_ENCL: s_encl_f = sensors_encl_temp_f(c->average, s_temp_cal); break;
-        case SENS_EXT:  s_ext_f  = sensors_ext_temp_f(c->average, s_vref_cal, &s_ext_state); break;
+        case SENS_EXT:  s_ext_f  = sensors_coolant_temp_f(c->average, &s_ext_state); break;
         case SENS_BATT: s_batt_cv = sensors_battery_cv(c->average, s_vref_cal); break;
         default: break;
     }
@@ -77,17 +78,22 @@ static int16_t sens_interp(const int32_t tbl[][2], uint8_t n, int32_t counts) {
     return (int16_t)(tbl[lo][1] + (offset * dtemp) / span);
 }
 
-int16_t sensors_ext_temp_f(uint16_t counts, uint16_t vref_cal, uint8_t *sensor_state) {
-    /* Calibration first (PIC ReadNTCTemperature order). */
-    int32_t c = ((int32_t)counts * vref_cal) / VREF_CAL_DEFAULT;
-
-    if (c >= NTC_DISCONNECT_CNT || c <= NTC_OVERMAX_CNT || c == NTC_SHORT_CNT) {
-        *sensor_state = SENSOR_OFF;                /* disconnect / over-range / short */
-        return 0;
+int16_t sensors_coolant_temp_f(uint16_t counts, uint8_t *sensor_state) {
+    /* AN_Ext_Temp net (PA4/IN4) now carries the engine-coolant sender. Front-end
+     * + Steinhart-Hart coefficients per COOLANT_* in sensors_cal.h (Robb, 2026-09-02). */
+    float v = (float)counts * COOLANT_ADC_VREF / COOLANT_ADC_MAX;
+    if (v <= 0.0f || v >= COOLANT_PULLUP_V) {        /* short-to-ground / (unreachable) rail */
+        *sensor_state = SENSOR_OFF;
+        return COOLANT_FAULT_F;
     }
+    float r  = COOLANT_PULLUP_OHMS * v / (COOLANT_PULLUP_V - v);
+    float ln = logf(r);
+    float tc = 1.0f / (COOLANT_SH_A + COOLANT_SH_B * ln + COOLANT_SH_C * ln * ln * ln) - 273.15f;
+    float tf = (tc * 1.8f) + 32.0f;                  /* degC -> degF (Robb's form) */
     *sensor_state = SENSOR_ON;
-    if (c > NTC_FLOOR_CNT) return NTC_FLOOR_F;     /* colder than -4 degF => floor */
-    return sens_interp(ext_ntc_table, EXT_NTC_TABLE_LEN, c);
+    if (tf >  32767.0f) tf =  32767.0f;              /* clamp to int16 range */
+    if (tf < -32768.0f) tf = -32768.0f;
+    return (int16_t)(tf < 0.0f ? tf - 0.5f : tf + 0.5f);   /* round to nearest degF */
 }
 
 int16_t sensors_encl_temp_f(uint16_t counts, int16_t temp_cal) {

@@ -29,7 +29,7 @@ static void test_ext_adc_reg3_and_temp_reg51(void) {
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(3, &adc));
     TEST_ASSERT_EQUAL_UINT16(1971, adc);
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(51, &f));
-    TEST_ASSERT_EQUAL_UINT16(32, f);
+    TEST_ASSERT_EQUAL_UINT16(133, f);   /* coolant conversion: 1971 counts -> 133 degF */
 }
 
 static void test_rpm_reg38(void) {

@@ -8,10 +8,13 @@ static apu_ctx_t ctx;
 void setUp(void) { mb_reg_reset(); sensors_init(VREF_CAL_DEFAULT, 0); control_init(&ctx); control_regs_register(&ctx); }
 void tearDown(void) {}
 
-static void test_sample_copies_ext_temp_and_state(void) {
-    for (int i = 0; i < SENS_AVG_DEFAULT; i++) sensors_add_sample(SENS_EXT, 1971); /* -> 32 degF, ON */
+static void test_sample_glow_ambient_from_enclosure(void) {
+    /* PA4/SENS_EXT is now the coolant sender and must NOT feed the glow ambient;
+       glow keys off the enclosure PTC, which is always ON. */
+    for (int i = 0; i < SENS_AVG_DEFAULT; i++) sensors_add_sample(SENS_EXT, 700);   /* hot coolant */
+    for (int i = 0; i < SENS_AVG_ENCL;    i++) sensors_add_sample(SENS_ENCL, 2048); /* enclosure ~77F */
     control_sample_sensors(&ctx);
-    TEST_ASSERT_EQUAL_INT16(32, ctx.external_temperature);
+    TEST_ASSERT_EQUAL_INT16(sensors_get_encl_temp_f(), ctx.external_temperature);
     TEST_ASSERT_EQUAL_UINT8(SENSOR_ON, ctx.ext_temp_sensor_state);
 }
 
@@ -33,7 +36,7 @@ static void test_sample_copies_cabin_temp(void) {
 
 int main(void) {
     UNITY_BEGIN();
-    RUN_TEST(test_sample_copies_ext_temp_and_state);
+    RUN_TEST(test_sample_glow_ambient_from_enclosure);
     RUN_TEST(test_reg32_standby_override_rw);
     RUN_TEST(test_sample_copies_cabin_temp);
     return UNITY_END();

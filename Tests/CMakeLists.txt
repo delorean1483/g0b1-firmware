@@ -31,7 +31,7 @@ add_unity_test(test_nvm_record test_nvm_record.c ../App/services/nvm_record.c ..
 add_unity_test(test_nvm test_nvm.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_nor.c)
 add_unity_test(test_nor_page_split test_nor_page_split.c ../App/services/nor_page_split.c)
 add_unity_test(test_sensors_battery test_sensors_battery.c ../App/services/sensors.c)
-add_unity_test(test_sensors_ext_temp test_sensors_ext_temp.c ../App/services/sensors.c)
+add_unity_test(test_sensors_coolant test_sensors_coolant.c ../App/services/sensors.c)
 add_unity_test(test_sensors_encl_temp test_sensors_encl_temp.c ../App/services/sensors.c)
 add_unity_test(test_sensors_shadow test_sensors_shadow.c ../App/services/sensors.c)
 # Guard tests run under ASan+UBSan: the pre-guard code's divide-by-zero / OOB

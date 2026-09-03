@@ -22,25 +22,23 @@
 #define BATT_CV_NUM   2
 #define BATT_CV_DEN   989
 
-/* External NTC (IN4): old Kohler 14-point table (10-bit counts -> degF), with
- * the count column rescaled x4.4 for the new 12-bit / 3.3V-excited / 3.000V-ref
- * front-end (see plan "Derived conversions"). Descending by count. */
-#define EXT_NTC_TABLE_LEN   14
-/* F1: open sensor saturates at 4095 (old 1020->4488 > ADC max), so disconnect
- * is only detectable at rail saturation. Provisional; confirm on bench. */
-#define NTC_DISCONNECT_CNT  4090   /* >= this  => disconnected/too-cold => OFF, 0 degF */
-#define NTC_SHORT_CNT       0      /* == this  => shorted => OFF, 0 degF */
-#define NTC_FLOOR_CNT       3709   /* >  this (and < disconnect) => floor at -4 degF, ON */
-#define NTC_FLOOR_F         (-4)
-#define NTC_OVERMAX_CNT     238    /* <= this  => over max temp (>248 degF) => OFF, 0 degF */
-#ifdef SENSORS_CAL_OWNER
-static const int32_t ext_ntc_table[EXT_NTC_TABLE_LEN][2] = {
-    {4488,   0}, {3709,  -4}, {2548,  20}, {1971,  32},
-    {1518,  50}, {1074,  68}, { 924,  80}, { 774,  92},
-    { 629, 104}, { 537, 120}, { 422, 140}, { 312, 176},
-    { 264, 212}, { 238, 248},
-};
-#endif
+/* Engine-coolant sender on the AN_Ext_Temp net (PA4 / ADC1_IN4).
+ * Robb's board front-end (2026-09-02): a low-side NTC sender with a 197.9 ohm
+ * pull-up to 3.300 V (the 10k stock pull-up was changed to 200 ohm for this
+ * low-R sender), read against the 3.000 V ADC reference, 12-bit. Temperature via
+ * Steinhart-Hart with the sender's A/B/C coefficients (supplied by Robb):
+ *   V = count*VREF/4095 ; R = PULLUP*V/(PULLUP_V - V) ; ln = ln(R)
+ *   1/T(K) = A + B*ln + C*ln^3 ; degF = (T-273.15)*9/5 + 32
+ * Note: VREF (3.000) < PULLUP_V (3.300), so the ADC can never reach the rail;
+ * only a dead short to ground (count 0 -> 0 V) is flagged as a fault. */
+#define COOLANT_ADC_MAX      4095.0f
+#define COOLANT_ADC_VREF     3.000f
+#define COOLANT_PULLUP_V     3.300f
+#define COOLANT_PULLUP_OHMS  197.9f
+#define COOLANT_SH_A         1.71206530e-3f
+#define COOLANT_SH_B         2.68030415e-4f
+#define COOLANT_SH_C         (-2.00829453e-7f)
+#define COOLANT_FAULT_F      (-460)   /* open/short sentinel (below absolute zero degF) */
 
 /* Enclosure (IN0): TMP6131 (TI linear silicon PTC, 10k @ 25C) with a 10k fixed
  * top resistor, ratiometric to the 3.000 V ref. count = 4096*S/(S+1), S=R/R25.
