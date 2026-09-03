@@ -128,3 +128,4 @@ add_unity_test(test_control_runtime_integration test_control_runtime_integration
 add_unity_test(test_fake_iflash test_fake_iflash.c fakes/fake_iflash.c)
 add_unity_test(test_bootcfg test_bootcfg.c ../App/services/bootcfg.c ../App/services/crc32.c fakes/fake_iflash.c)
 add_unity_test(test_boot_decision test_boot_decision.c ../App/services/boot_decision.c)
+add_unity_test(test_bl_proto test_bl_proto.c ../App/services/bl_proto.c)
