@@ -77,18 +77,6 @@ SECTIONS
     _etext = .;        /* define a global symbols at end of code */
   } >FLASH
 
-  /* Functions that must execute from RAM during flash program/erase. */
-  _siramfunc = LOADADDR(.RamFunc);
-  .RamFunc :
-  {
-    . = ALIGN(4);
-    _sramfunc = .;
-    *(.RamFunc)
-    *(.RamFunc*)
-    . = ALIGN(4);
-    _eramfunc = .;
-  } >RAM AT> FLASH
-
   /* Constant data into "FLASH" Rom type memory */
   .rodata :
   {
@@ -153,9 +141,8 @@ SECTIONS
     _sdata = .;        /* create a global symbol at data start */
     *(.data)           /* .data sections */
     *(.data*)          /* .data* sections */
-    /* .RamFunc / .RamFunc* now claimed by the dedicated .RamFunc output
-       section above (see _siramfunc/_sramfunc/_eramfunc) — left unlisted
-       here so this section's content is unambiguous in the map file. */
+    *(.RamFunc)        /* .RamFunc sections */
+    *(.RamFunc*)       /* .RamFunc* sections */
 
     . = ALIGN(4);
     _edata = .;        /* define a global symbol at data end */

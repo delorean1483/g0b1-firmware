@@ -2,16 +2,20 @@
  * (Task 7). Consumed by the bootloader (boot/) and the app's boot-config
  * write-on-confirm path.
  *
- * program() and erase() are marked __attribute__((section(".RamFunc"))) and
- * therefore execute out of RAM (see STM32G0B1RETX_FLASH.ld + the startup
- * .RamFunc copy loop). The G0B1 is single-bank flash: while a program/erase
- * operation is in progress the flash cannot service instruction fetches, so
- * any code that drives that operation — and can be reached while it runs —
- * must not itself reside in flash.
+ * Standard HAL flash: program() and erase() run from FLASH like the rest of
+ * this file, using the plain STM32 HAL (HAL_FLASH_Program /
+ * HAL_FLASHEx_Erase). The G0B1 is single-bank flash, so a program/erase
+ * operation transparently stalls the CPU's instruction fetch for its
+ * duration — this is a safe hardware bus pause, not a hazard: ST's own G0
+ * HAL does not mark HAL_FLASH_Program/HAL_FLASHEx_Erase/
+ * FLASH_WaitForLastOperation as __RAM_FUNC (only the fast-program variant
+ * is), i.e. ST intends standard double-word program / single-page erase to
+ * execute from flash and simply eat the stall. IWDG is refreshed
+ * immediately before each page erase so the caller's page-by-page erase
+ * loop (e.g. a 112-page slot erase, ~3 s total) never runs long enough
+ * between refreshes to trip the ~2 s watchdog.
  *
- * read() is a plain memory-mapped copy; it never runs during a program/erase
- * (never called from inside program()/erase()) so it is safe to leave in
- * FLASH.
+ * read() is a plain memory-mapped copy.
  */
 #include "drv_iflash.h"
 #include "stm32g0xx_hal.h"
@@ -31,8 +35,7 @@ static int iflash_read(void *c, uint32_t a, uint8_t *b, uint32_t n) {
     return 0;
 }
 
-/* program: MUST run from RAM (single-bank read-while-write stall). */
-__attribute__((section(".RamFunc")))
+/* program: standard HAL flash program (double-word), runs from FLASH. */
 static int iflash_program(void *c, uint32_t a, const uint8_t *b, uint32_t n) {
     (void)c;
     if ((n & 7u) != 0u || (a & 7u) != 0u) return -1;
@@ -49,9 +52,9 @@ static int iflash_program(void *c, uint32_t a, const uint8_t *b, uint32_t n) {
     return 0;
 }
 
-/* erase one page: MUST run from RAM; refresh IWDG so a 112-page slot erase
-   (~3 s total) does not trip the ~2 s watchdog between pages. */
-__attribute__((section(".RamFunc")))
+/* erase one page: standard HAL flash erase, runs from FLASH; refresh IWDG
+   so a 112-page slot erase (~3 s total) does not trip the ~2 s watchdog
+   between pages. */
 static int iflash_erase(void *c, uint32_t page) {
     (void)c;
     if (page >= FL_PAGES) return -1;
@@ -59,6 +62,9 @@ static int iflash_erase(void *c, uint32_t page) {
     HAL_FLASH_Unlock();
     FLASH_EraseInitTypeDef e = {0};
     e.TypeErase = FLASH_TYPEERASE_PAGES;
+    e.Banks = FLASH_BANK_1;   /* required: FLASH_DBANK_SUPPORT on G0B1 means the
+                                 HAL sets BKER from Banks on every erase; a
+                                 zero-initialized Banks fails IS_FLASH_BANK. */
     e.Page = page;
     e.NbPages = 1;
     uint32_t err = 0;
