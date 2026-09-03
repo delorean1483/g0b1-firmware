@@ -11,3 +11,7 @@ Tests/build/
 
 # Bootloader build output (generated .elf/.bin/.map/.o — never committed)
 boot/build/
+
+# Python bytecode cache (tools/*.py)
+__pycache__/
+*.pyc
