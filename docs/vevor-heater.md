@@ -92,9 +92,9 @@ The heater is bound to Modbus **registers 53–67** (firmware `MB_REG_*` enum). 
 |-----|--------|---------|
 | 0 | `HEATER_FLAG_FRESH` | Telemetry is fresh (≤3 seconds old); RX/Modbus read clears it |
 | 1 | `HEATER_FLAG_COOLDOWN` | Heater is in cooldown sequence (state=4); expected ~5 min after stop-request |
-| 2 | `HEATER_FLAG_SAFE_TO_POWER_DOWN` | Safe to power-cut: only set when a fresh (≤3 s), checksum-valid response reports **state 0 (off)** |
+| 2 | `HEATER_FLAG_SAFE_OFF` | Safe to power-cut: only set when a fresh (≤3 s), checksum-valid response reports **state 0 (off)** |
 | 3 | `HEATER_FLAG_COMMS_FAULT` | Communication lost (no valid frame for >10 s); **never clears safe_to_power_down while active** |
-| 4 | `HEATER_FLAG_TRANSPORT_FAULT` | Framing/parity error on the bus; recoverable, monitored for diagnostic |
+| 4 | `HEATER_FLAG_XPORT_FAULT` | Framing/parity error on the bus; recoverable, monitored for diagnostic |
 
 ---
 
@@ -108,7 +108,7 @@ The heater is bound to Modbus **registers 53–67** (firmware `MB_REG_*` enum). 
 
 2. **Loss of communication is a FAULT.** If the heater does not respond for >10 seconds, set `comms_fault` (reg 64 bit3) and continue polling. This is **not** a permission to force-stop or power-cut; it is a diagnostic alert.
 
-3. **Only a fresh, valid state-0 response sets safe-to-power-down.** The bit `HEATER_FLAG_SAFE_TO_POWER_DOWN` (reg 64 bit2) is set **only when**:
+3. **Only a fresh, valid state-0 response sets safe-to-power-down.** The bit `HEATER_FLAG_SAFE_OFF` (reg 64 bit2) is set **only when**:
    - A heater response is valid (checksum OK)
    - **Age ≤ 3 seconds** (reg 63 ≤ 3000 ms)
    - **State code = 0 (off)** (reg 55 == 0)
