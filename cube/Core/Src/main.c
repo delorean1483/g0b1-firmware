@@ -44,6 +44,7 @@ ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c1;
+I2C_HandleTypeDef hi2c2;
 
 IWDG_HandleTypeDef hiwdg;
 
@@ -70,6 +71,7 @@ static void MX_SPI2_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_I2C2_Init(void);
 static void MX_IWDG_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -116,11 +118,8 @@ int main(void)
   MX_I2C1_Init();
   MX_ADC1_Init();
   MX_TIM3_Init();
-  /* MX_IWDG_Init();  -- MOVED into app_main() (bench fix). The IWDG must NOT be
-     armed here, before app_main(): the one-time NVM journal scan in nvm_init()
-     can run longer than the ~2 s IWDG period, which caused a boot reset loop.
-     app_main() now arms the watchdog after all init, just before its superloop.
-     Do not re-enable this call. (MX_IWDG_Init remains defined but unused.) */
+  MX_I2C2_Init();
+  MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
   app_main();   /* never returns — owns the superloop (Task 1: idle; MCO on PA8 = 4 MHz validates the clock) */
   /* USER CODE END 2 */
@@ -302,6 +301,54 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x60302730;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0x0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
 
 }
 
@@ -568,8 +615,8 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, STARTER_Pin|FUEL_PUMP_Pin|EVAP_FAN_Pin, GPIO_PIN_RESET);

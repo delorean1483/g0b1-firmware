@@ -29,9 +29,9 @@ typedef enum {
 #define MB_F_QTY_LO    5u
 #define MB_HEADER_SIZE 6u
 
-/* Register model. Registers are 1..52; wire range check is (start+count) <= 53. */
-#define MB_REG_MAX     52u
-#define MB_REG_LIMIT   53u
+/* Register model. Registers are 1..70; wire range check is (start+count) <= 71. */
+#define MB_REG_MAX     70u
+#define MB_REG_LIMIT   71u
 
 /* Diagnostics (FC 0x08) sub-functions. */
 #define MB_DIAG_RETURN_QUERY   0x00u

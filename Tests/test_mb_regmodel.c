@@ -40,7 +40,7 @@ static void test_provider_value_range(void) {
 static void test_out_of_range_reg_illegal_address(void) {
     uint16_t o;
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_read(0, &o));   /* reg 0 invalid */
-    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_read(53, &o));  /* > MB_REG_MAX */
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_read(MB_REG_MAX + 1u, &o));  /* > MB_REG_MAX */
 }
 
 int main(void) {
