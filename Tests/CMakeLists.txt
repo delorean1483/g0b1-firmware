@@ -48,6 +48,7 @@ add_unity_test(test_wk2132 test_wk2132.c ../App/services/wk2132.c fakes/fake_wk2
 # (the build dir), not the source dir where fixtures/ lives, so pin it here.
 add_unity_test(test_vevor test_vevor.c ../App/services/vevor_heater.c ../App/services/wk2132.c fakes/fake_wk2132_i2c.c)
 set_tests_properties(test_vevor PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_unity_test(test_heater test_heater.c ../App/services/heater.c ../App/services/vevor_heater.c ../App/services/wk2132.c fakes/fake_wk2132_i2c.c)
 add_unity_test(test_rtc_bcd test_rtc_bcd.c ../App/services/rtc.c)
 add_unity_test(test_rtc_time test_rtc_time.c ../App/services/rtc.c fakes/fake_i2c.c)
 add_unity_test(test_rtc_osc_sram test_rtc_osc_sram.c ../App/services/rtc.c fakes/fake_i2c.c)
