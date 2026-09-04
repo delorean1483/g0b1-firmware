@@ -1,14 +1,13 @@
 #include "heater.h"
 #include <string.h>
 
-/* WK2132 DIP-switch wiring for the heater's I2C-UART bridge: channel 0,
-   IA1/IA0 both strapped low (base address 0x10). Confirm against the board
-   schematic during bench bring-up (Task 6) -- the fake backend used by the
-   host tests below does not model per-address state, so this choice does
-   not affect test behavior. */
+/* WK2132 DIP-switch wiring for the heater's I2C-UART bridge, per the
+   verified hardware: channel 0, IA1=1/IA0=1 strapped -> base address 0x70
+   (0x40|0x20|0x10). The fake backend used by the host tests below does not
+   model per-address state, so this choice does not affect test behavior. */
 #define HEATER_WK2132_CHANNEL 0U
-#define HEATER_WK2132_IA1     false
-#define HEATER_WK2132_IA0     false
+#define HEATER_WK2132_IA1     true
+#define HEATER_WK2132_IA0     true
 
 static WK2132_t            s_wk;
 static VEVOR_t              s_vevor;
