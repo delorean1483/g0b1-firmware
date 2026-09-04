@@ -9,12 +9,20 @@
 #define HEATER_WK2132_IA1     true
 #define HEATER_WK2132_IA0     true
 
+/* Sticky window for HEATER_FLAG_XPORT_FAULT: heater_process() runs every
+   superloop pass, so a single-call pulse on a transport-error increment is
+   almost never observed by a Modbus poller. Hold the flag for this long
+   after the last observed increase, matching the response-freshness window. */
+#define HEATER_XPORT_STICKY_MS 3000UL
+
 static WK2132_t            s_wk;
 static VEVOR_t              s_vevor;
 static uint8_t              s_target_level = 1U;
 static uint8_t              s_request = 0U;
 static heater_telemetry_t   s_telemetry;
 static uint32_t             s_prev_transport_errors;
+static uint32_t             s_last_xport_tick;
+static bool                 s_xport_seen;
 
 static uint16_t saturate_u16(uint32_t value)
 {
@@ -33,6 +41,8 @@ void heater_init(const wk2132_i2c_t *bus, uint32_t now)
     s_request = 0U;
     memset(&s_telemetry, 0, sizeof(s_telemetry));
     s_prev_transport_errors = 0U;
+    s_last_xport_tick = 0U;
+    s_xport_seen = false;
 }
 
 void heater_process(uint32_t now)
@@ -60,9 +70,14 @@ void heater_process(uint32_t now)
         flags |= HEATER_FLAG_COMMS_FAULT;
     }
     if (s_vevor.transport_errors > s_prev_transport_errors) {
-        flags |= HEATER_FLAG_XPORT_FAULT;
+        s_last_xport_tick = now;
+        s_xport_seen = true;
     }
     s_prev_transport_errors = s_vevor.transport_errors;
+    if (s_xport_seen &&
+        ((uint32_t)(now - s_last_xport_tick) <= HEATER_XPORT_STICKY_MS)) {
+        flags |= HEATER_FLAG_XPORT_FAULT;
+    }
 
     s_telemetry.state            = s_vevor.status.state;
     s_telemetry.active_level     = s_vevor.status.level;
@@ -83,9 +98,11 @@ void heater_process(uint32_t now)
 
 void heater_set_request(uint8_t on)
 {
+    uint8_t prev = s_request;
     s_request = (on != 0U) ? 1U : 0U;
     if (s_request == 1U) {
-        (void)VEVOR_Start(&s_vevor, s_target_level);
+        if (prev == 0U) { (void)VEVOR_Start(&s_vevor, s_target_level); }  /* arm start burst only off->on */
+        /* prev==1: already running/starting — do NOT re-arm the START burst */
     } else {
         VEVOR_Stop(&s_vevor);
     }

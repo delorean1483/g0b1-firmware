@@ -65,25 +65,25 @@ The firmware ships the **driver** (`drv_wk2132_i2c2.c`) and wiring harness, but 
 
 ## 4. Modbus Register Map
 
-The heater is bound to Modbus **registers 53–67** (firmware `MB_REG_*` enum). Registers 68–70 are reserved for future thermostat "HEAT mode" (setpoint→level mapping). The **MB_REG_MAX was expanded from 52 to 70** in the register module.
+The heater is bound to Modbus **registers 53–67** via `mbp_heater_register()` (`mbp_heater.c` binds each register number directly to a read/write handler — there are no `MB_REG_HEATER_*` symbols in the firmware). Registers 68–70 are reserved for future thermostat "HEAT mode" (setpoint→level mapping). The **MB_REG_MAX was expanded from 52 to 70** in the register module.
 
-| Reg | Symbol | Type | Access | Description |
+| Reg | Field | Type | Access | Description |
 |-----|--------|------|--------|-------------|
-| 53 | `MB_REG_HEATER_REQUEST` | U16 | RW | Heater mode: 0=stop (off), 1=run (on) |
-| 54 | `MB_REG_HEATER_LEVEL` | U16 | RW | Heater power level: 1–10 (clamped by firmware) |
-| 55 | `MB_REG_HEATER_STATE` | U16 | RO | Heater state code: 0=off, 1=preheat (glow), 2=ignition, 3=running, 4=cooldown |
-| 56 | `MB_REG_HEATER_ACTIVE_LEVEL` | U16 | RO | Current active power level (echoed from device during running) |
-| 57 | `MB_REG_HEATER_ERROR` | U16 | RO | Error code from heater: 0=none (see heater manual for fault codes) |
-| 58 | `MB_REG_HEATER_SUPPLY_MV` | U16 | RO | Supply rail voltage in mV (e.g., 24000 = 24 V) |
-| 59 | `MB_REG_HEATER_FAN_RPM` | U16 | RO | Heater fan speed in RPM |
-| 60 | `MB_REG_HEATER_PUMP_HZ_X10` | U16 | RO | Fuel pump frequency × 10 (e.g., 450 = 45 Hz) |
-| 61 | `MB_REG_HEATER_EXCHANGER_RAW` | U16 | RO | Exchanger temperature raw ADC value (unconverted; future task) |
-| 62 | `MB_REG_HEATER_STATE_SECONDS` | U16 | RO | Time in current state (seconds), max ~300 s (cooldown/startup) |
-| 63 | `MB_REG_HEATER_AGE_MS` | U16 | RO | Age of the telemetry sample (milliseconds since last valid frame) |
-| 64 | `MB_REG_HEATER_FLAGS` | U16 | RO | Bit flags (see table below) |
-| 65 | `MB_REG_HEATER_VALID_FRAMES` | U16 | RO | Count of valid heater frames received (diagnostic) |
-| 66 | `MB_REG_HEATER_CHECKSUM_FAILURES` | U16 | RO | Count of checksum failures (diagnostic) |
-| 67 | `MB_REG_HEATER_TRANSPORT_ERRORS` | U16 | RO | Count of transport/framing errors (diagnostic) |
+| 53 | `heater_request` | U16 | RW | Heater mode: 0=stop (off), 1=run (on) |
+| 54 | `heater_level` | U16 | RW | Heater power level: 1–10 (clamped by firmware) |
+| 55 | `state` | U16 | RO | Heater state code: 0=off, 1=preheat (glow), 2=ignition, 3=running, 4=cooldown |
+| 56 | `active_level` | U16 | RO | Current active power level (echoed from device during running) |
+| 57 | `error` | U16 | RO | Error code from heater: 0=none (see heater manual for fault codes) |
+| 58 | `supply_mv` | U16 | RO | Supply rail voltage in mV (e.g., 24000 = 24 V) |
+| 59 | `fan_rpm` | U16 | RO | Heater fan speed in RPM |
+| 60 | `pump_hz_x10` | U16 | RO | Fuel pump frequency × 10 (e.g., 450 = 45 Hz) |
+| 61 | `exchanger_raw` | U16 | RO | Exchanger temperature raw ADC value (unconverted; future task) |
+| 62 | `state_seconds` | U16 | RO | Time in current state (seconds), max ~300 s (cooldown/startup) |
+| 63 | `age_ms` | U16 | RO | Age of the telemetry sample (milliseconds since last valid frame) |
+| 64 | `flags` | U16 | RO | Bit flags (see table below) |
+| 65 | `valid_frames` | U16 | RO | Count of valid heater frames received (diagnostic) |
+| 66 | `checksum_failures` | U16 | RO | Count of checksum failures (diagnostic) |
+| 67 | `transport_errors` | U16 | RO | Count of transport/framing errors (diagnostic) |
 | 68–70 | *reserved* | — | — | Future thermostat "HEAT mode" (setpoint→level mapping) |
 
 ### Flags Register (reg 64) Bit Definitions
@@ -93,7 +93,7 @@ The heater is bound to Modbus **registers 53–67** (firmware `MB_REG_*` enum). 
 | 0 | `HEATER_FLAG_FRESH` | Telemetry is fresh (≤3 seconds old); RX/Modbus read clears it |
 | 1 | `HEATER_FLAG_COOLDOWN` | Heater is in cooldown sequence (state=4); expected ~5 min after stop-request |
 | 2 | `HEATER_FLAG_SAFE_OFF` | Safe to power-cut: only set when a fresh (≤3 s), checksum-valid response reports **state 0 (off)** |
-| 3 | `HEATER_FLAG_COMMS_FAULT` | Communication lost (no valid frame for >10 s); **never clears safe_to_power_down while active** |
+| 3 | `HEATER_FLAG_COMMS_FAULT` | Communication lost (no valid frame for >3 s); **never clears safe_to_power_down while active** |
 | 4 | `HEATER_FLAG_XPORT_FAULT` | Framing/parity error on the bus; recoverable, monitored for diagnostic |
 
 ---
@@ -106,7 +106,7 @@ The heater is bound to Modbus **registers 53–67** (firmware `MB_REG_*` enum). 
 
 1. **Never stop the heater by removing power.** The heater ECU must complete its own shutdown sequence. A forced power cut will leave fuel and glow plug in mid-sequence and may cause damage or ignition hazard.
 
-2. **Loss of communication is a FAULT.** If the heater does not respond for >10 seconds, set `comms_fault` (reg 64 bit3) and continue polling. This is **not** a permission to force-stop or power-cut; it is a diagnostic alert.
+2. **Loss of communication is a FAULT.** If the heater does not respond for >3 seconds, set `comms_fault` (reg 64 bit3) and continue polling. This is **not** a permission to force-stop or power-cut; it is a diagnostic alert.
 
 3. **Only a fresh, valid state-0 response sets safe-to-power-down.** The bit `HEATER_FLAG_SAFE_OFF` (reg 64 bit2) is set **only when**:
    - A heater response is valid (checksum OK)
@@ -194,7 +194,7 @@ The following procedure **must be followed in order**. Each stage de-risks a dif
 2. **Do not add fuel to the heater tank yet.**
 3. Flash the firmware with `heater_request = 0` (stop).
 4. Monitor Modbus register 55 (heater state) and 63 (age).
-5. Within **10 seconds**, confirm:
+5. Within **3 seconds**, confirm:
    - A valid heater frame is received (age < 3000 ms).
    - State = 0 (off).
    - No checksum failures (reg 66 = 0).
@@ -244,7 +244,7 @@ The following procedure **must be followed in order**. Each stage de-risks a dif
 
 - **VEVOR protocol + checksum verification** (Task 2):
   - **1221 captured heater frames** analyzed and re-encoded.
-  - CRC-16 XMODEM checksum **0 failures** against captured data.
+  - 8-bit additive checksum (low byte of the sum of bytes 2..N-1; see `VEVOR_Checksum`) **0 failures** against captured data.
   - Start/stop/level frame encoding verified.
   - Telemetry frame parsing verified.
 

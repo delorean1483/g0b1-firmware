@@ -13,6 +13,9 @@ void fake_wk2132_reset(void);                 /* zero regs, GENA=0x80, clear tx/
 void fake_wk2132_reset_tx(void);              /* clear only the TX-capture buffer */
 void fake_wk2132_set_gena_present(bool present); /* set/clear GENA bit 7 */
 void fake_wk2132_inject_rx(const uint8_t *data, size_t len); /* queue RX bytes */
+/* While enabled, all four backend ops (mem_read/mem_write/tx/rx) return
+   non-zero, simulating an I2C bus fault. Cleared by fake_wk2132_reset(). */
+void fake_wk2132_force_error(int enable);
 
 size_t         fake_wk2132_tx_len(void);      /* bytes captured via bus->tx */
 const uint8_t *fake_wk2132_tx_data(void);     /* backing TX-capture buffer */

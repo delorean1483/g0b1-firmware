@@ -57,8 +57,47 @@ void test_comms_loss_while_on_is_fault_never_safe(void){
     TEST_ASSERT_TRUE (tel.flags & HEATER_FLAG_COMMS_FAULT);
     TEST_ASSERT_FALSE(tel.flags & HEATER_FLAG_SAFE_OFF); /* loss is never safe-off */
 }
+void test_reassert_request_while_running_does_not_rearm_start(void){
+    heater_set_level(3U); heater_set_request(1U);
+    /* Drive through the 4-frame START burst into RUN (mirrors
+       test_start_emits_four_start_then_run). */
+    uint8_t seen_cmd[5]; uint32_t t=0;
+    for(int i=0;i<5;i++){ fake_wk2132_reset_tx(); heater_process(t);
+        seen_cmd[i]= fake_wk2132_tx_len()>=3 ? fake_wk2132_tx_data()[2] : 0xFF; t+=1000; }
+    TEST_ASSERT_EQUAL_HEX8(0x02,seen_cmd[4]); /* now steady-state RUN */
+
+    /* Re-write request=1 while already on: must be a no-op -- it must NOT
+       re-arm a fresh 4-frame START burst. */
+    heater_set_request(1U);
+    for(int i=0;i<4;i++){
+        fake_wk2132_reset_tx();
+        heater_process(t);
+        TEST_ASSERT_EQUAL_HEX8(0x02, fake_wk2132_tx_data()[2]); /* still RUN, never 0x06 START again */
+        t+=1000;
+    }
+}
+void test_xport_fault_is_sticky_then_clears(void){
+    /* Force the I2C backend to fail so VEVOR_Process records a transport
+       error on its next RX-poll/TX-cadence op. */
+    fake_wk2132_force_error(1);
+    heater_process(10U); /* >= VEVOR_RX_POLL_INTERVAL_MS(10) since init at t=0 -> triggers an op */
+    heater_telemetry_t t;
+    heater_get_telemetry(&t);
+    TEST_ASSERT_TRUE(t.flags & HEATER_FLAG_XPORT_FAULT);
+
+    fake_wk2132_force_error(0);
+    heater_process(500U); /* no new error, but still within the sticky window */
+    heater_get_telemetry(&t);
+    TEST_ASSERT_TRUE(t.flags & HEATER_FLAG_XPORT_FAULT);
+
+    heater_process(5000U); /* past the sticky window */
+    heater_get_telemetry(&t);
+    TEST_ASSERT_FALSE(t.flags & HEATER_FLAG_XPORT_FAULT);
+}
 int main(void){ UNITY_BEGIN();
     RUN_TEST(test_start_emits_four_start_then_run);
     RUN_TEST(test_running_response_decodes_and_is_not_safe_off);
     RUN_TEST(test_stop_then_state00_sets_safe_off);
-    RUN_TEST(test_comms_loss_while_on_is_fault_never_safe); return UNITY_END(); }
+    RUN_TEST(test_comms_loss_while_on_is_fault_never_safe);
+    RUN_TEST(test_reassert_request_while_running_does_not_rearm_start);
+    RUN_TEST(test_xport_fault_is_sticky_then_clears); return UNITY_END(); }

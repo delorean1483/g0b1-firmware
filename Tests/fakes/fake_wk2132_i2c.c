@@ -29,6 +29,8 @@ static uint8_t s_rx[RX_BUF_SIZE];
 static size_t  s_rx_len;
 static size_t  s_rx_pos;
 
+static int s_force_error;
+
 static int is_global_reg(uint8_t reg)
 {
     return (reg == REG_GENA) || (reg == REG_GRST) || (reg == REG_SPAGE);
@@ -39,6 +41,9 @@ static int fw_mem_read(void *ctx, uint8_t addr7, uint8_t reg, uint8_t *buf,
 {
     (void)ctx;
     (void)addr7;
+    if (s_force_error) {
+        return -1;
+    }
     for (uint16_t i = 0; i < len; i++) {
         uint8_t r = (uint8_t)(reg + i);
         if (r == REG_RFCNT) {
@@ -65,6 +70,9 @@ static int fw_mem_write(void *ctx, uint8_t addr7, uint8_t reg,
 {
     (void)ctx;
     (void)addr7;
+    if (s_force_error) {
+        return -1;
+    }
     for (uint16_t i = 0; i < len; i++) {
         uint8_t r = (uint8_t)(reg + i);
         uint8_t v = buf[i];
@@ -90,6 +98,9 @@ static int fw_tx(void *ctx, uint8_t addr7, const uint8_t *buf, uint16_t len)
 {
     (void)ctx;
     (void)addr7;
+    if (s_force_error) {
+        return -1;
+    }
     for (uint16_t i = 0; (i < len) && (s_tx_len < sizeof s_tx); i++) {
         s_tx[s_tx_len++] = buf[i];
     }
@@ -100,6 +111,9 @@ static int fw_rx(void *ctx, uint8_t addr7, uint8_t *buf, uint16_t len)
 {
     (void)ctx;
     (void)addr7;
+    if (s_force_error) {
+        return -1;
+    }
     size_t remaining = s_rx_len - s_rx_pos;
     size_t n = ((size_t)len < remaining) ? (size_t)len : remaining;
     for (size_t i = 0; i < n; i++) {
@@ -128,6 +142,7 @@ void fake_wk2132_reset(void)
     memset(s_rx, 0, sizeof s_rx);
     s_rx_len = 0U;
     s_rx_pos = 0U;
+    s_force_error = 0;
 }
 
 void fake_wk2132_reset_tx(void)
@@ -143,6 +158,11 @@ void fake_wk2132_set_gena_present(bool present)
     } else {
         s_global[REG_GENA] &= (uint8_t)~0x80U;
     }
+}
+
+void fake_wk2132_force_error(int enable)
+{
+    s_force_error = enable;
 }
 
 void fake_wk2132_inject_rx(const uint8_t *data, size_t len)
