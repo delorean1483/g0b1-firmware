@@ -24,6 +24,7 @@ add_unity_test(test_smoke test_smoke.c)
 add_unity_test(test_types test_types.c)
 add_unity_test(test_modbus_crc test_modbus_crc.c ../App/services/modbus_crc.c)
 add_unity_test(test_crc32 test_crc32.c ../App/services/crc32.c)
+add_unity_test(test_iflash_pagemap test_iflash_pagemap.c)  # header-only pure mapping
 add_unity_test(test_modbus_frame test_modbus_frame.c ../App/services/modbus_frame.c ../App/services/modbus_crc.c)
 add_unity_test(test_modbus_read test_modbus_read.c ../App/services/modbus_read.c ../App/services/modbus_crc.c)
 add_unity_test(test_fake_nor test_fake_nor.c fakes/fake_nor.c)

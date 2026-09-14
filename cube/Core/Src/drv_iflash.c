@@ -19,6 +19,7 @@
  */
 #include "drv_iflash.h"
 #include "stm32g0xx_hal.h"
+#include "iflash_pagemap.h"
 
 #define FL_BASE   0x08000000u
 #define FL_PAGE   2048u
@@ -68,10 +69,16 @@ static int iflash_erase(void *c, uint32_t page) {
     HAL_FLASH_Unlock();
     FLASH_EraseInitTypeDef e = {0};
     e.TypeErase = FLASH_TYPEERASE_PAGES;
-    e.Banks = FLASH_BANK_1;   /* required: FLASH_DBANK_SUPPORT on G0B1 means the
-                                 HAL sets BKER from Banks on every erase; a
-                                 zero-initialized Banks fails IS_FLASH_BANK. */
-    e.Page = page;
+    /* The G0B1 erase controller numbers pages PER BANK and selects the 128-page
+       half via Banks/BKER -- FLASH_PAGE_NB is 128 on this 2-bank part. Map the
+       flat page (0..255) to (bank, page-in-bank); hardcoding FLASH_BANK_1 wraps
+       PNB for flat pages >= FLASH_PAGE_NB and erases the wrong physical page
+       (bench 2026-09-14: a slot-B erase wiped physical page 0 / the bootloader).
+       See App/services/iflash_pagemap.h. */
+    uint32_t bank, pnb;
+    iflash_map_page(page, FLASH_PAGE_NB, &bank, &pnb);
+    e.Banks = (bank == 0u) ? FLASH_BANK_1 : FLASH_BANK_2;
+    e.Page = pnb;
     e.NbPages = 1;
     uint32_t err = 0;
     HAL_StatusTypeDef st = HAL_FLASHEx_Erase(&e, &err);
