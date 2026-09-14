@@ -23,6 +23,8 @@ endfunction()
 add_unity_test(test_smoke test_smoke.c)
 add_unity_test(test_types test_types.c)
 add_unity_test(test_modbus_crc test_modbus_crc.c ../App/services/modbus_crc.c)
+add_unity_test(test_crc32 test_crc32.c ../App/services/crc32.c)
+add_unity_test(test_iflash_pagemap test_iflash_pagemap.c)  # header-only pure mapping
 add_unity_test(test_modbus_frame test_modbus_frame.c ../App/services/modbus_frame.c ../App/services/modbus_crc.c)
 add_unity_test(test_modbus_read test_modbus_read.c ../App/services/modbus_read.c ../App/services/modbus_crc.c)
 add_unity_test(test_fake_nor test_fake_nor.c fakes/fake_nor.c)
@@ -64,6 +66,7 @@ add_unity_test(test_mbp_sensors test_mbp_sensors.c ../App/services/mbp_sensors.c
 add_unity_test(test_mbp_rtc test_mbp_rtc.c ../App/services/mbp_rtc.c ../App/services/mb_regmodel.c ../App/services/rtc.c ../App/services/rtc_calendar.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_i2c.c fakes/fake_nor.c)
 add_unity_test(test_mbp_nvm test_mbp_nvm.c ../App/services/mbp_nvm.c ../App/services/mb_regmodel.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_nor.c)
 add_unity_test(test_mbp_sys test_mbp_sys.c ../App/services/mbp_sys.c ../App/services/mb_regmodel.c)
+add_unity_test(test_mbp_boot test_mbp_boot.c ../App/services/mbp_boot.c ../App/services/mb_regmodel.c)
 add_unity_test(test_mbp_heater test_mbp_heater.c ../App/services/mbp_heater.c ../App/services/heater.c ../App/services/vevor_heater.c ../App/services/wk2132.c ../App/services/mb_regmodel.c fakes/fake_wk2132_i2c.c)
 add_unity_test(test_mb_integration test_mb_integration.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/mbp_sensors.c ../App/services/mbp_rtc.c ../App/services/mbp_nvm.c ../App/services/mbp_sys.c ../App/services/sensors.c ../App/services/rpm.c ../App/services/rtc.c ../App/services/rtc_calendar.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_i2c.c fakes/fake_nor.c)
 add_unity_test(test_bsp_io test_bsp_io.c ../App/services/bsp_io.c fakes/fake_bsp_io.c)
@@ -132,3 +135,9 @@ add_unity_test(test_control_runtime_integration test_control_runtime_integration
     ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c
     ../App/services/control_diag.c
     fakes/fake_bsp_io.c fakes/fake_bsp_pwm.c fakes/fake_nor.c)
+add_unity_test(test_fake_iflash test_fake_iflash.c fakes/fake_iflash.c)
+add_unity_test(test_bootcfg test_bootcfg.c ../App/services/bootcfg.c ../App/services/crc32.c fakes/fake_iflash.c)
+add_unity_test(test_boot_decision test_boot_decision.c ../App/services/boot_decision.c)
+add_unity_test(test_bl_proto test_bl_proto.c ../App/services/bl_proto.c)
+add_unity_test(test_bl_session test_bl_session.c ../App/services/bl_session.c ../App/services/bl_proto.c ../App/services/bootcfg.c ../App/services/crc32.c fakes/fake_iflash.c)
+add_unity_test(test_app_confirm test_app_confirm.c ../App/services/app_confirm.c ../App/services/bootcfg.c ../App/services/crc32.c fakes/fake_iflash.c)

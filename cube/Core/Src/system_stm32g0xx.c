@@ -184,12 +184,22 @@
   * @param  None
   * @retval None
   */
+/* Defined by the startup file (startup_stm32g0b1retx.s); the linker places it
+ * at the base of FLASH for whichever slot script (SLOTA/SLOTB, or the boot
+ * region) links this image. */
+extern uint32_t g_pfnVectors;
+
 void SystemInit(void)
 {
-  /* Configure the Vector Table location -------------------------------------*/
-#if defined(USER_VECT_TAB_ADDRESS)
-  SCB->VTOR = VECT_TAB_BASE_ADDRESS | VECT_TAB_OFFSET; /* Vector Table Relocation */
-#endif /* USER_VECT_TAB_ADDRESS */
+  /* Configure the Vector Table location -------------------------------------
+   * Unconditionally point VTOR at THIS image's own vector table instead of
+   * relying on the CPU's automatic boot-address remap (which only covers
+   * 0x08000000). Task 12 (A/B slot linkers): each per-slot build's
+   * g_pfnVectors sits at that slot's FLASH origin (0x08008000 / 0x08040000),
+   * so &g_pfnVectors is always the correct VTOR for whichever slot this
+   * image was linked for and is now executing — belt-and-suspenders with the
+   * bootloader also setting VTOR before it jumps here (boot/src/boot_jump.c). */
+  SCB->VTOR = (uint32_t)&g_pfnVectors;
 }
 
 /**

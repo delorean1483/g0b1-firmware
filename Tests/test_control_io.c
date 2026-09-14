@@ -5,6 +5,7 @@
 #include "io_debounce.h"
 #include "mb_regmodel.h"
 #include "fake_bsp_io.h"
+#include "fw_version.h"
 
 static apu_ctx_t ctx;
 static bsp_io_backend_t io_be;
@@ -80,7 +81,7 @@ static void test_any_mode_write_exits_diag(void) {
 static void test_fw_version_reg2_is_read_only(void) {
     uint16_t o = 0;
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(2, &o));
-    TEST_ASSERT_EQUAL_UINT16(10000, o);   /* v1.0.0 -> 1*10000 + 0*100 + 0 */
+    TEST_ASSERT_EQUAL_UINT16(G0B1_FW_VERSION_ENC, o);   /* reg 2 tracks fw_version.h */
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_write(2, 1));   /* read-only */
 }
 
