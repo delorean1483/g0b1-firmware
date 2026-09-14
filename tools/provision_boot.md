@@ -54,6 +54,39 @@ single-bank map.
 
 ---
 
+## Step 1b — Force boot from main flash (mandatory)
+
+The unit must **never** boot the STM32 system-memory (ST ROM) bootloader.
+BOOT0 is on **PA14/SWCLK**, exposed only at the SWD header, and two situations
+can otherwise latch the chip into ST ROM: a cold power-on with the debugger
+attached, or a main flash that reads empty (e.g. mid-recovery). Once in ST ROM,
+the ordinary RS-485 traffic on the bus (the agent's Modbus polling) can be
+mis-parsed by ROM's USART autobaud/command parser and **corrupt flash** — bench
+2026-09-14, this erased a unit's bootloader and left it unbootable until an SWD
+re-flash. Lock boot to main flash so ST ROM is unreachable:
+
+```sh
+# Ignore the BOOT0/SWCLK pin and select main-flash boot.
+STM32_Programmer_CLI -c port=SWD -ob nBOOT_SEL=1 nBOOT0=1
+# Hard-lock: always boot 0x08000000, even if flash reads empty (ROM/SRAM
+# boot become impossible). SWD flashing still works at RDP level 0.
+STM32_Programmer_CLI -c port=SWD -ob BOOT_LOCK=1
+STM32_Programmer_CLI -c port=SWD -ob displ   # confirm nBOOT0=1, BOOT_LOCK=1
+```
+
+> ⚠️ **`nBOOT0` polarity gotcha on the EF-G0B1R:** empirically **`nBOOT0=1`
+> boots main flash** and **`nBOOT0=0` boots system memory** — the *inverse* of
+> what STM32CubeProgrammer's `-ob displ` text implies (it prints the raw
+> `nBOOT1` sentence literally). Trust this table, not the printed sentence.
+> With `BOOT_LOCK=1` the point is moot (boot is forced to flash regardless),
+> but set `nBOOT0=1` too so a future `BOOT_LOCK` clear still boots flash.
+
+Reverting `BOOT_LOCK` later requires an RDP level 1→0 regression (mass-erase),
+so only clear it on a bench unit you intend to fully re-provision. SWD memory
+read/write and `-ob` reads work normally while it's set.
+
+---
+
 ## Step 2 — Flash the bootloader and both app slots
 
 Build the bootloader first if you haven't:

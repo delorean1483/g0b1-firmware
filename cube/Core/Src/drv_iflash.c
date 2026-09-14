@@ -23,6 +23,11 @@
 #define FL_BASE   0x08000000u
 #define FL_PAGE   2048u
 #define FL_PAGES  256u
+#define FL_BL_PAGES 16u   /* pages 0-15 = 32 KB bootloader @ 0x08000000, never
+                             erased on-target (SWD-only); erase refuses them so
+                             no caller bug can wipe the bootloader (bench
+                             2026-09-14: a bootloader-region erase bricked the
+                             boot path). Slots start at page 16 / 128. */
 
 extern IWDG_HandleTypeDef hiwdg;   /* armed by the bootloader/app before flash ops */
 
@@ -58,6 +63,7 @@ static int iflash_program(void *c, uint32_t a, const uint8_t *b, uint32_t n) {
 static int iflash_erase(void *c, uint32_t page) {
     (void)c;
     if (page >= FL_PAGES) return -1;
+    if (page < FL_BL_PAGES) return -1;   /* never erase the bootloader region */
     HAL_IWDG_Refresh(&hiwdg);
     HAL_FLASH_Unlock();
     FLASH_EraseInitTypeDef e = {0};

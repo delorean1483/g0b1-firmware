@@ -73,11 +73,26 @@ void test_erase_flash_fault_naks(void){
     uint8_t er[]={1,BL_FC_CONTROL,BL_SUB_ERASE}; call(er,sizeof er,r);
     TEST_ASSERT_EQUAL_HEX8(0xC1,r[1]); TEST_ASSERT_EQUAL_HEX8(BL_ERR_FLASH,r[2]);
 }
+/* A slot stream must NEVER erase the bootloader region (pages 0-15 @
+   0x08000000). Bench 2026-09-14: the boot path was left unbootable after an
+   OTA attempt; this locks the invariant that erase_target's page range stays
+   within the target slot and never reaches the bootloader. */
+void test_erase_leaves_bootloader_region_intact(void){
+    uint8_t *bl = fake_iflash_ptr(0x08000000u);
+    for (int i = 0; i < 64; i++) bl[i] = (uint8_t)(0xA5 ^ i);
+    uint8_t saved[64]; memcpy(saved, bl, sizeof saved);
+    uint8_t er[]={1,BL_FC_CONTROL,BL_SUB_ERASE}; uint8_t r[16];
+    call(er,sizeof er,r);
+    TEST_ASSERT_EQUAL_HEX8(0x00,r[3]);              /* erase ACK */
+    TEST_ASSERT_EQUAL_INT(BL_ST_ERASED,S.state);
+    TEST_ASSERT_EQUAL_MEMORY(saved, bl, sizeof saved);  /* bootloader untouched */
+}
 
 int main(void){
     UNITY_BEGIN();
     RUN_TEST(test_target_is_inactive_slot); RUN_TEST(test_info);
     RUN_TEST(test_data_before_erase_naks); RUN_TEST(test_happy_path_erase_write_verify_commit);
     RUN_TEST(test_verify_bad_crc_naks); RUN_TEST(test_erase_flash_fault_naks);
+    RUN_TEST(test_erase_leaves_bootloader_region_intact);
     return UNITY_END();
 }

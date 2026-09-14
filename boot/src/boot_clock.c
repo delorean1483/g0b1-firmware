@@ -5,9 +5,17 @@
  * an identical USART1 BRR, so the boot's 9600 8N1 timing matches the cortex the
  * running app already talks to.
  *
- * boot_iwdg_init() mirrors the app's watchdog (PRESCALER_32, Window 4095,
- * Reload 1999 -> ~2 s). hiwdg is defined here; drv_iflash.c references it extern
- * and refreshes it before each page erase.
+ * boot_iwdg_init() gives the bootloader a DELIBERATELY LONG watchdog
+ * (PRESCALER_256, Window 4095, Reload 4095 -> ~32 s at LSI/256), NOT the app's
+ * tight ~2 s. Rationale: a full 224 KB slot erase is 112 synchronous page
+ * erases (~3-4 s), and a single HAL_FLASHEx_Erase can stall the CPU longer
+ * than the app's 2 s window on real silicon (bench 2026-09-14: a slot erase
+ * tripped the 2 s IWDG and left the unit unbootable). The bootloader is a
+ * controlled recovery environment, so a coarse ~32 s watchdog still catches a
+ * genuinely hung bootloader while leaving ample headroom for flash ops. The
+ * IWDG hardware is shared: whichever of app/bootloader runs HAL_IWDG_Init last
+ * wins, and the app re-arms its own 2 s on the JUMP path. drv_iflash.c still
+ * refreshes hiwdg before each page erase as a second layer.
  */
 #include "stm32g0xx_hal.h"
 
@@ -61,9 +69,9 @@ void boot_clock_init(void)
 void boot_iwdg_init(void)
 {
   hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_32;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_256;
   hiwdg.Init.Window = 4095;
-  hiwdg.Init.Reload = 1999;   /* ~2 s at LSI/32 */
+  hiwdg.Init.Reload = 4095;   /* ~32 s at LSI/256 -- headroom for slot erase */
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
   {
     Error_Handler();
