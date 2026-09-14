@@ -44,6 +44,13 @@ target_link_options(test_sensors_guard PRIVATE -fsanitize=address,undefined)
 add_unity_test(test_rpm test_rpm.c ../App/services/rpm.c)
 add_unity_test(test_rpm_calc test_rpm_calc.c ../App/services/rpm_calc.c)
 add_unity_test(test_fake_i2c test_fake_i2c.c fakes/fake_i2c.c)
+add_unity_test(test_wk2132 test_wk2132.c ../App/services/wk2132.c fakes/fake_wk2132_i2c.c)
+# test_vevor loads Tests/fixtures/*.hex via paths relative to the test's cwd.
+# ctest's default WORKING_DIRECTORY for add_test() is CMAKE_CURRENT_BINARY_DIR
+# (the build dir), not the source dir where fixtures/ lives, so pin it here.
+add_unity_test(test_vevor test_vevor.c ../App/services/vevor_heater.c ../App/services/wk2132.c fakes/fake_wk2132_i2c.c)
+set_tests_properties(test_vevor PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_unity_test(test_heater test_heater.c ../App/services/heater.c ../App/services/vevor_heater.c ../App/services/wk2132.c fakes/fake_wk2132_i2c.c)
 add_unity_test(test_rtc_bcd test_rtc_bcd.c ../App/services/rtc.c)
 add_unity_test(test_rtc_time test_rtc_time.c ../App/services/rtc.c fakes/fake_i2c.c)
 add_unity_test(test_rtc_osc_sram test_rtc_osc_sram.c ../App/services/rtc.c fakes/fake_i2c.c)
@@ -60,6 +67,7 @@ add_unity_test(test_mbp_rtc test_mbp_rtc.c ../App/services/mbp_rtc.c ../App/serv
 add_unity_test(test_mbp_nvm test_mbp_nvm.c ../App/services/mbp_nvm.c ../App/services/mb_regmodel.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_nor.c)
 add_unity_test(test_mbp_sys test_mbp_sys.c ../App/services/mbp_sys.c ../App/services/mb_regmodel.c)
 add_unity_test(test_mbp_boot test_mbp_boot.c ../App/services/mbp_boot.c ../App/services/mb_regmodel.c)
+add_unity_test(test_mbp_heater test_mbp_heater.c ../App/services/mbp_heater.c ../App/services/heater.c ../App/services/vevor_heater.c ../App/services/wk2132.c ../App/services/mb_regmodel.c fakes/fake_wk2132_i2c.c)
 add_unity_test(test_mb_integration test_mb_integration.c ../App/services/mb_engine.c ../App/services/mb_regmodel.c ../App/services/mbp_sensors.c ../App/services/mbp_rtc.c ../App/services/mbp_nvm.c ../App/services/mbp_sys.c ../App/services/sensors.c ../App/services/rpm.c ../App/services/rtc.c ../App/services/rtc_calendar.c ../App/services/nvm.c ../App/services/nvm_record.c ../App/services/nvm_defaults.c ../App/services/modbus_crc.c fakes/fake_i2c.c fakes/fake_nor.c)
 add_unity_test(test_bsp_io test_bsp_io.c ../App/services/bsp_io.c fakes/fake_bsp_io.c)
 add_unity_test(test_bsp_pwm test_bsp_pwm.c ../App/services/bsp_pwm.c ../App/services/fan_speed.c fakes/fake_bsp_pwm.c)

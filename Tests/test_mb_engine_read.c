@@ -75,7 +75,7 @@ static void test_count_zero_is_illegal_value(void) {
 
 static void test_range_over_limit_illegal_address(void) {
     uint8_t req[16], resp[MB_MAX_FRAME]; uint16_t rl = 0;
-    uint16_t n = build_req(req, MB_FC_READ_HOLDING, 52, 2); /* 52+2=54 > 53 */
+    uint16_t n = build_req(req, MB_FC_READ_HOLDING, MB_REG_MAX, 2); /* MB_REG_MAX+2 > MB_REG_LIMIT */
     mb_engine_process(req, n, resp, &rl);
     TEST_ASSERT_EQUAL_UINT8(MB_EXC_ILLEGAL_ADDRESS, resp[2]);
 }
