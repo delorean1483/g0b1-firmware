@@ -210,5 +210,25 @@
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/App/services/control_diag.c</locationURI>
 		</link>
+		<link>
+			<name>Core/Src/crc32.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/crc32.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/bootcfg.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/bootcfg.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/mbp_boot.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_boot.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/app_confirm.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/app_confirm.c</locationURI>
+		</link>
 	</linkedResources>
 </projectDescription>

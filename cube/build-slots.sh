@@ -56,7 +56,11 @@ fi
 
 # All object files the Release build produced (App/services + Core + HAL +
 # Drivers), gathered the same way CubeIDE's generated makefile does.
-mapfile -t OBJS < <(find "${RELEASE_DIR}" -name '*.o')
+# Portable across bash 3.2 (macOS default, no `mapfile`) and bash 4+.
+# Object paths never contain newlines, so a while-read loop is safe.
+OBJS=()
+while IFS= read -r _obj; do OBJS+=("${_obj}"); done \
+    < <(find "${RELEASE_DIR}" -name '*.o')
 if [ "${#OBJS[@]}" -eq 0 ]; then
     echo "ERROR: no .o files under ${RELEASE_DIR}/ — CubeIDE build didn't" \
          "run, or produced them elsewhere." >&2
