@@ -1,6 +1,6 @@
 # RPM reads high + jittery — diagnosis & fix (TIM3 input-capture filter)
 
-**Status:** DRAFT — **HELD, do not flash** until the bench data sheet confirms the reading is noise-driven (see `docs/bench/2026-09-15-rpm-tach-bench-datasheet.md`). This documents the diagnosis and the ready-to-apply change so we don't re-derive it.
+**Status:** Lever-1 change **APPLIED in-branch** (`main.c` + `.ioc`), host suite 65/65 green. **Not yet built/flashed** — flashing needs bench/SWD, and the before/after spread check (`docs/bench/2026-09-15-rpm-tach-bench-datasheet.md`) rides along on that same bench visit. Justified now because the 2026-09-15 readings already prove noise (75 RPM jitter at a constant true RPM), and the filter is one-directional (rejects only sub-2µs glitches, cannot drop a real edge, doesn't touch the math or the `6.8125` constant). The **`6.8125` recalibration stays HELD** until a clean de-noised reading exists.
 **Reported:** 2026-09-15 bench, unit TRUCK-001 (.86), fw 1.01.01 (`apu_fw_version` 10101).
 
 ---
