@@ -521,7 +521,7 @@ static void MX_TIM3_Init(void)
   sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
+  sConfigIC.ICFilter = 12;   /* f_DTS/16, N=8 -> ~2us glitch reject on the tach edge; kills spurious-edge RPM bias/jitter. See docs/2026-09-15-rpm-tach-noise-fix.md. If CubeMX regenerates, set Channel1 Input Filter=12 in the GUI (.ioc TIM3.ICFilter_CH1) or this reverts to 0. */
   if (HAL_TIM_IC_ConfigChannel(&htim3, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
