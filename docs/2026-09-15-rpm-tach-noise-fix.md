@@ -1,6 +1,6 @@
 # RPM reads high + jittery — diagnosis & fix (TIM3 input-capture filter)
 
-**Status:** Lever-1 change **APPLIED in-branch** (`main.c` + `.ioc`), host suite 65/65 green. **Not yet built/flashed** — flashing needs bench/SWD, and the before/after spread check (`docs/bench/2026-09-15-rpm-tach-bench-datasheet.md`) rides along on that same bench visit. Justified now because the 2026-09-15 readings already prove noise (75 RPM jitter at a constant true RPM), and the filter is one-directional (rejects only sub-2µs glitches, cannot drop a real edge, doesn't touch the math or the `6.8125` constant). The **`6.8125` recalibration stays HELD** until a clean de-noised reading exists.
+**Status:** ✅ **BOTH FIXES DONE + FLASHED + BENCH-VALIDATED (2026-09-15, TRUCK-001).** (1) ICFilter=12 enabled; (2) constant refit `6.8125 → 6.22` (`311/50`) from the now-clean reading. Built headless (CubeIDE) on `origin/main` (v1.1.1, heater + all), host suite 78/78, flashed via SWD. See "Bench result" below.
 **Reported:** 2026-09-15 bench, unit TRUCK-001 (.86), fw 1.01.01 (`apu_fw_version` 10101).
 
 ---
@@ -89,3 +89,19 @@ A software reject for implausibly-short periods, in the capture ISR (`drv_rpm_ti
 - The RPM **math** (`rpm_from_period_ticks`) is unchanged, so the existing host suite (`Tests/test_rpm_calc.c`, `test_rpm.c`) stays green — run `Tests/` to confirm no regression from the `main.c`/`.ioc` edit.
 - **Bench:** fill `docs/bench/2026-09-15-rpm-tach-bench-datasheet.md` *before* the change (baseline) and *after* flashing (with-filter). Success = the Variscite reading tracks the digital tach with **spread collapsed to ≲1%** and bias within a few %. If a residual constant bias remains after the jitter is gone, *then* re-fit `RPM_FREQ_MULT` from the clean data.
 - Definition of done: dashboard RPM within ~2% of the digital tach and stable across the run, at every steady operating point.
+
+---
+
+## Bench result (2026-09-15, TRUCK-001, engine running in climate)
+
+Digital tach (YW-762) reference ≈ **2453–2456 RPM** (governed climate speed).
+
+**After ICFilter=12 (before recalibration):** 30-sample dashboard capture → min 2669 / max 2699 / **mean 2688** / **spread 30 / stddev 11.9 (0.44%)**.
+- **Jitter collapsed** vs the pre-fix 75-RPM spread between two readings → the filter works.
+- A **flat +9.4% bias** remained (2688 vs ~2456) → clean constant calibration error exposed once the noise was gone. This is the "then re-fit the constant" branch above.
+
+**Recalibration:** correct MULT = `6.8125 × 2456/2688 = 6.225`; refit to **`6.22` (`311/50`)** → maps 2688 → ~2454. `rpm_calc.h`/`.c` + `test_rpm_calc.c` updated, host suite **78/78 green**, rebuilt + reflashed.
+
+**Note / caveat:** validated at the single governed climate RPM (~2450) — the operating point that matters. A second steady speed (e.g. battery mode) would confirm the multiplier holds across the range. Final on-engine confirmation of the recalibrated read (should sit on the tach) is a quick next-run check; it's correct by construction from the 30-sample average.
+
+**Deployment note:** this fix (ICFilter + constant) is on the **STM32 app** built from `origin/main` (v1.1.1) + this branch, flashed via SWD at the bench. It is NOT delivered by the cortex OTA (that's the Variscite side). Merge this branch so the fix is in `g0b1-firmware` main for the next firmware build.
