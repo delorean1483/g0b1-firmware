@@ -193,6 +193,21 @@ class Link:
     def read_reg2(self) -> int:
         return self.read_holding(REG_VERSION - 1, 1)[0]
 
+    def device_in_app(self) -> bool:
+        """True if the device answers a normal app-mode register read (FC 0x03)
+        -- i.e. it is running the *application*, not the bootloader. Used to
+        disambiguate a real bootloader NAK from the app simply rejecting the
+        unknown bootloader function code: an app illegal-function reply to
+        FC 0x41 is byte-for-byte identical (0x01 0xC1 0x01 ...) to a bootloader
+        BL_ERR_STATE NAK, so an INFO 'NAK' alone cannot tell them apart. The
+        bootloader rejects FC 0x03 (it only speaks 0x41/0x42), so a successful
+        reg read is a positive signal the device never entered update mode."""
+        try:
+            self.read_reg2()
+            return True
+        except BLError:
+            return False
+
     def enter_bootloader(self, refusal_timeout: float = 0.3):
         """Write reg 35 = 0x00A5. On success the device resets immediately
         inside the write handler and sends NOTHING back -- a timeout here is
@@ -346,7 +361,24 @@ def run(args) -> int:
         print(f"waiting {args.reset_wait}s for reset + bootloader bring-up...")
         time.sleep(args.reset_wait)
 
-        info = _retry(link.bl_info, args.max_retries, "INFO")
+        try:
+            info = _retry(link.bl_info, args.max_retries, "INFO")
+        except BLError as e:
+            # An INFO "NAK" (0xC1 / err 0x01) is byte-identical to the *app*
+            # rejecting FC 0x41 as an illegal function -- so this frequently
+            # means the device never left the app (enter-bootloader did not take
+            # effect), NOT a bootloader error. Probe app-mode reg access to tell
+            # them apart and report the real cause instead of a misleading NAK.
+            if link.device_in_app():
+                raise BLError(
+                    "enter-bootloader did not take effect -- the device is still "
+                    "running the application (it answered a normal register read). "
+                    "The INFO 'NAK' was the app rejecting the unknown bootloader "
+                    "function code 0x41, not a bootloader error. Check: engine "
+                    "confirmed OFF (a running engine refuses the arm)? reg-35 arm "
+                    "(0x00A5) reaching the device? Try a longer --reset-wait. "
+                    f"(underlying INFO error: {e})") from e
+            raise
         slot_letter = "A" if info["inactive_slot"] == 0 else "B"
         print(f"INFO: bl_version={info['bl_version']} inactive_slot={slot_letter} "
               f"slot_size={info['slot_size']} chunk_max={info['chunk_max']} "
