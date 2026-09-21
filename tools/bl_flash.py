@@ -84,6 +84,13 @@ BL_SUB_STATUS = 0x06
 BL_ERR_NAMES = {1: "BL_ERR_STATE", 2: "BL_ERR_RANGE", 3: "BL_ERR_CRC", 4: "BL_ERR_FLASH"}
 BL_CHUNK_DEFAULT = 240  # BL_CHUNK_MAX; INFO's reported chunk_max is authoritative
 
+# Inactive-slot flash bases (mirror g0b1_slots.h / bl_proto.h). Used only to
+# sanity-check that the given --image is linked for the slot INFO reports
+# inactive -- a wrong-slot image flashes fine but boots into garbage because
+# its vector table points into the other slot's flash region.
+SLOT_A_BASE = 0x08008000
+SLOT_B_BASE = 0x08040000
+
 # ERASE erases all 112 pages of a 224 KB slot SYNCHRONOUSLY on-target before
 # it ACKs the FC 0x41 ERASE request (App/services/bl_session.c:erase_target)
 # -- roughly 2.5-4.5s at ~22-40ms/page on the G0. The normal per-frame
@@ -350,6 +357,22 @@ def run(args) -> int:
             raise BLError(f"unexpected chunk_max {info['chunk_max']} from device")
         if len(image) > info["slot_size"]:
             raise BLError(f"image ({len(image)} B) exceeds slot size ({info['slot_size']} B)")
+
+        # Wrong-slot guard: the .bin's reset vector (bytes 4-7, Thumb bit set)
+        # points into the flash region it was LINKED for. bl_flash always writes
+        # whichever slot INFO reports inactive, so if the image's reset vector
+        # isn't in that slot's range, the given --image is linked for the OTHER
+        # slot -- it would erase+stream+verify fine but boot into garbage (its
+        # vectors point elsewhere). Refuse now, before ERASE.
+        inactive_base = SLOT_A_BASE if info["inactive_slot"] == 0 else SLOT_B_BASE
+        reset_vec = int.from_bytes(image[4:8], "little") & ~1
+        if not (inactive_base <= reset_vec < inactive_base + info["slot_size"]):
+            raise BLError(
+                f"wrong-slot image: reset vector 0x{reset_vec:08X} is not in the "
+                f"inactive slot {slot_letter} range "
+                f"[0x{inactive_base:08X}, 0x{inactive_base + info['slot_size']:08X}). "
+                f"The device is on the other slot -- pass the slot-{slot_letter} .bin "
+                f"(linked for 0x{inactive_base:08X}), not the one you gave.")
         chunk_max = info["chunk_max"]
 
         print(f"ERASE... (synchronous on-target, can take a few seconds; "
