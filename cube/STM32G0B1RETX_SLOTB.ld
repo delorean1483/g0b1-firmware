@@ -40,9 +40,15 @@
 /* Entry Point */
 ENTRY(Reset_Handler)
 
-/* Highest address of the user mode stack — reserve the top 32 B NOINIT
- * region (reset-magic word) below it, same idiom as boot/g0b1-boot.ld. */
-_estack = 0x20023FE0;
+/* Highest address of the user-mode stack. It MUST sit a guard gap BELOW the
+ * NOINIT reset-magic word at 0x20023FE0. The old value (_estack == the magic
+ * address) let the stack (initial SP = _estack) overwrite g_boot_magic, which
+ * silently broke the app->bootloader enter-update handoff — confirmed on
+ * silicon 2026-09-21 (the running app clobbered 0x20023FE0 within seconds, and
+ * the bootloader's own stack wiped the request before boot_main could read it).
+ * Keep _estack + RAM end a 32 B guard below NOINIT; the magic stays pinned at
+ * 0x20023FE0 so the app and boot/g0b1-boot.ld still agree on its address. */
+_estack = 0x20023FC0;
 
 _Min_Heap_Size = 0x200; /* required amount of heap */
 _Min_Stack_Size = 0x400; /* required amount of stack */
@@ -50,7 +56,7 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Memories definition */
 MEMORY
 {
-  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 0x23FE0
+  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 0x23FC0  /* ends 0x20023FC0: 32 B guard below NOINIT */
   NOINIT (rw)     : ORIGIN = 0x20023FE0,   LENGTH = 32
   FLASH    (rx)    : ORIGIN = 0x08040000,   LENGTH = 224K
 }

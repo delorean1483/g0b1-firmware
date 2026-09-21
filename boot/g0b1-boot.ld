@@ -6,15 +6,22 @@
  *
  * R12: the boot flash driver (drv_iflash) is standard flash-resident HAL —
  * there is NO .RamFunc section here and no RAM-copy loop in the startup.
+ *
+ * _estack MUST sit a guard gap below the NOINIT magic (0x20023FE0). Previously
+ * _estack == the magic address, so the bootloader's OWN stack overwrote
+ * g_boot_magic during HAL_Init/clock/IWDG before boot_main read it — silently
+ * dropping the app's enter-update request (confirmed on silicon 2026-09-21).
+ * _estack + RAM end now sit 32 B below NOINIT; magic stays pinned at 0x20023FE0
+ * so the app slot linkers and this one still agree on its address.
  */
 ENTRY(Reset_Handler)
-_estack = 0x20023FE0;              /* below the .noinit word (top 32 B reserved) */
+_estack = 0x20023FC0;              /* 32 B guard below the .noinit magic (0x20023FE0) */
 _Min_Heap_Size = 0x0;
 _Min_Stack_Size = 0x400;
 
 MEMORY
 {
-  RAM    (xrw) : ORIGIN = 0x20000000, LENGTH = 143K + 992   /* 0x23FE0 */
+  RAM    (xrw) : ORIGIN = 0x20000000, LENGTH = 143K + 960   /* 0x23FC0: 32 B guard below NOINIT */
   NOINIT (rw)  : ORIGIN = 0x20023FE0, LENGTH = 32
   FLASH  (rx)  : ORIGIN = 0x08000000, LENGTH = 32K
 }
