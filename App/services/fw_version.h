@@ -14,10 +14,13 @@
  * v1.1.3: version-only bump (no functional change) to exercise the remote
  * APU-flash path end-to-end after the agent's INFO/VERIFY handshake-retry
  * hardening (cortex PR #55/#56) -- gives the flow something newer than the
- * installed v1.1.2 to install. */
+ * installed v1.1.2 to install.
+ * v1.1.4: version-only bump (no functional change) to HW-validate the cortex
+ * RS-485 reply-framing fix (idle-gap 5->30ms, cortex PR #60) -- the STM32 is
+ * already on v1.1.3, so this gives the flash flow a newer target to install. */
 #define G0B1_FW_VERSION_MAJOR 1u
 #define G0B1_FW_VERSION_MINOR 1u
-#define G0B1_FW_VERSION_PATCH 3u
+#define G0B1_FW_VERSION_PATCH 4u
 
 /* single-register encoding: major*10000 + minor*100 + patch  (max 6.55.35) */
 #define G0B1_FW_VERSION_ENC \
