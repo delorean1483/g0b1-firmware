@@ -17,10 +17,12 @@
  * installed v1.1.2 to install.
  * v1.1.4: version-only bump (no functional change) to HW-validate the cortex
  * RS-485 reply-framing fix (idle-gap 5->30ms, cortex PR #60) -- the STM32 is
- * already on v1.1.3, so this gives the flash flow a newer target to install. */
+ * already on v1.1.3, so this gives the flash flow a newer target to install.
+ * v1.1.5: machine/engine/oil hours are committed to NVM as they tick -- they
+ * previously lived only in the RAM shadow and rolled back on any STM32 reset. */
 #define G0B1_FW_VERSION_MAJOR 1u
 #define G0B1_FW_VERSION_MINOR 1u
-#define G0B1_FW_VERSION_PATCH 4u
+#define G0B1_FW_VERSION_PATCH 5u
 
 /* single-register encoding: major*10000 + minor*100 + patch  (max 6.55.35) */
 #define G0B1_FW_VERSION_ENC \
