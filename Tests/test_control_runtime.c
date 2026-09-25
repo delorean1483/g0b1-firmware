@@ -93,6 +93,44 @@ static void test_hour_bump_saturates_at_65535(void) {
     TEST_ASSERT_EQUAL_UINT16(65535, nvm_read_word(MACHINE_RUNTIME_START)); /* no wrap */
 }
 
+/* The hour counters are the only NVM values bumped outside a Modbus write, and a
+   Modbus register write was the only thing that ever committed the RAM shadow.
+   So an STM32 reset (power loss, ST-Link attach, watchdog, STM32 OTA) rolled
+   hours back to the last settings change (bench: machine 138 -> 126). Simulate
+   the reset by re-running nvm_init() on the same fake NOR. */
+static void test_machine_hour_survives_reset(void) {
+    nvm_write_word(MACHINE_RUNTIME_START, 10);
+    TEST_ASSERT_EQUAL_INT(0, nvm_commit());                          /* persisted baseline */
+    ctx.machine_run_min = 59;
+    control_service_runtime(&ctx);                                   /* hour bump -> 11 */
+    nvm_init(&nor);                                                  /* reset: reload from flash */
+    TEST_ASSERT_EQUAL_UINT16(11, nvm_read_word(MACHINE_RUNTIME_START));
+}
+
+static void test_engine_and_oil_hours_survive_reset(void) {
+    nvm_write_word(ENGINE_RUNTIME_START, 20);
+    nvm_write_word(ENGINE_OILTIME_START, 100);
+    TEST_ASSERT_EQUAL_INT(0, nvm_commit());
+    ctx.out.fuel_pump = true; ctx.engine_run_min = 59; ctx.engine_oil_min = 59;
+    control_service_runtime(&ctx);                                   /* both bump */
+    nvm_init(&nor);
+    TEST_ASSERT_EQUAL_UINT16(21, nvm_read_word(ENGINE_RUNTIME_START));
+    TEST_ASSERT_EQUAL_UINT16(101, nvm_read_word(ENGINE_OILTIME_START));
+}
+
+/* Flash wear: only an hour bump commits — a plain minute tick must not. An
+   uncommitted setting change is the witness: it must NOT survive a reset. */
+static void test_minute_tick_without_bump_does_not_commit(void) {
+    nvm_write_word(MACHINE_RUNTIME_START, 10);
+    TEST_ASSERT_EQUAL_INT(0, nvm_commit());
+    nvm_write_word(EE_CLIMATE_TEMP_SETTING, 77);                     /* dirty, uncommitted */
+    ctx.machine_run_min = 5;
+    control_service_runtime(&ctx);                                   /* 5 -> 6, no bump */
+    nvm_init(&nor);
+    TEST_ASSERT_NOT_EQUAL(77, nvm_read_word(EE_CLIMATE_TEMP_SETTING));
+    TEST_ASSERT_EQUAL_UINT16(10, nvm_read_word(MACHINE_RUNTIME_START));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_oil_good_below_500);
@@ -106,5 +144,8 @@ int main(void) {
     RUN_TEST(test_engine_and_oil_accumulate_with_fuel);
     RUN_TEST(test_engine_min_increments_no_rollover);
     RUN_TEST(test_hour_bump_saturates_at_65535);
+    RUN_TEST(test_machine_hour_survives_reset);
+    RUN_TEST(test_engine_and_oil_hours_survive_reset);
+    RUN_TEST(test_minute_tick_without_bump_does_not_commit);
     return UNITY_END();
 }
