@@ -47,6 +47,29 @@ void test_stop_then_state00_sets_safe_off(void){
     TEST_ASSERT_EQUAL_HEX8(0x06, fake_wk2132_tx_data()[2]);
     TEST_ASSERT_EQUAL_HEX8(0x05, fake_wk2132_tx_data()[9]);
 }
+void test_idle_heater_that_answers_stays_fresh(void){
+    /* Heater off (never requested). The controller must keep polling with a
+       STOP frame every second so an idle heater that answers each poll stays
+       FRESH — the agent derives heater_comms_ok = FRESH && !COMMS_FAULT, so a
+       stale idle link would show a false NO COMMS badge on the panel. */
+    heater_set_request(0U);
+    uint8_t r[56]; make_resp(0U,0U,0U,r);
+    uint32_t t=0;
+    for(int i=0;i<30;i++){               /* 30 s idle, well past the 3 s window */
+        fake_wk2132_reset_tx();
+        heater_process(t);               /* TX slot: a STOP poll goes out */
+        TEST_ASSERT_TRUE(fake_wk2132_tx_len() >= 10);
+        TEST_ASSERT_EQUAL_HEX8(0x06, fake_wk2132_tx_data()[2]);
+        TEST_ASSERT_EQUAL_HEX8(0x05, fake_wk2132_tx_data()[9]);
+        fake_wk2132_inject_rx(r,56);     /* heater answers "off" */
+        heater_process(t+20U);           /* RX poll picks the reply up */
+        t+=1000;
+    }
+    heater_telemetry_t tel; heater_get_telemetry(&tel);
+    TEST_ASSERT_TRUE (tel.flags & HEATER_FLAG_FRESH);
+    TEST_ASSERT_FALSE(tel.flags & HEATER_FLAG_COMMS_FAULT);
+    TEST_ASSERT_TRUE (tel.flags & HEATER_FLAG_SAFE_OFF);
+}
 void test_comms_loss_while_on_is_fault_never_safe(void){
     heater_set_request(1U); uint8_t r[56]; make_resp(3U,3U,0U,r);
     fake_wk2132_inject_rx(r,56); heater_process(0U); heater_process(20U);
@@ -98,6 +121,7 @@ int main(void){ UNITY_BEGIN();
     RUN_TEST(test_start_emits_four_start_then_run);
     RUN_TEST(test_running_response_decodes_and_is_not_safe_off);
     RUN_TEST(test_stop_then_state00_sets_safe_off);
+    RUN_TEST(test_idle_heater_that_answers_stays_fresh);
     RUN_TEST(test_comms_loss_while_on_is_fault_never_safe);
     RUN_TEST(test_reassert_request_while_running_does_not_rearm_start);
     RUN_TEST(test_xport_fault_is_sticky_then_clears); return UNITY_END(); }
