@@ -1,138 +1,198 @@
 #include "heater.h"
+#include "htr_i2c_map.h"
+#include "htr_types.h"
 #include <string.h>
 
-/* WK2132 DIP-switch wiring for the heater's I2C-UART bridge, per the
-   verified hardware: channel 0, IA1=1/IA0=1 strapped -> base address 0x70
-   (0x40|0x20|0x10). The fake backend used by the host tests below does not
-   model per-address state, so this choice does not affect test behavior. */
-#define HEATER_WK2132_CHANNEL 0U
-#define HEATER_WK2132_IA1     true
-#define HEATER_WK2132_IA0     true
+static const i2c_backend_t *s_bus;
+static void (*s_reset)(void);
+static uint8_t  s_request;
+static uint8_t  s_level = 1U;
+static int8_t   s_setpoint = 20;
+static int16_t  s_ambient_x10 = HTR_AMBIENT_UNKNOWN;
+static uint8_t  s_type_select = HTR_TYPE_AUTO;
+static uint8_t  s_type_pending;
+static uint8_t  s_coproc_type = HTR_TYPE_AUTO;   /* HEATER_TYPE as read back */
+static uint8_t  s_identified;
+static uint8_t  s_ever_identified;   /* NACKs only count as transport faults after this */
+static uint8_t  s_cmd_pending;       /* COMMAND to send once (0 = none) */
+static uint32_t s_last_poll, s_last_ok, s_last_xport;
+static uint8_t  s_xport_seen;
+static uint32_t s_xport_errors;
+static heater_telemetry_t s_t;
 
-/* Sticky window for HEATER_FLAG_XPORT_FAULT: heater_process() runs every
-   superloop pass, so a single-call pulse on a transport-error increment is
-   almost never observed by a Modbus poller. Hold the flag for this long
-   after the last observed increase, matching the response-freshness window. */
-#define HEATER_XPORT_STICKY_MS 3000UL
+static uint16_t le16(const uint8_t *b, uint8_t reg) { return (uint16_t)(b[reg] | ((uint16_t)b[reg + 1U] << 8)); }
+static uint16_t sat16(uint32_t v) { return (v > 0xFFFFU) ? 0xFFFFU : (uint16_t)v; }
 
-static WK2132_t            s_wk;
-static VEVOR_t              s_vevor;
-static uint8_t              s_target_level = 1U;
-static uint8_t              s_request = 0U;
-static heater_telemetry_t   s_telemetry;
-static uint32_t             s_prev_transport_errors;
-static uint32_t             s_last_xport_tick;
-static bool                 s_xport_seen;
-
-static uint16_t saturate_u16(uint32_t value)
+void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t now)
 {
-    return (value > 0xFFFFU) ? 0xFFFFU : (uint16_t)value;
+    s_bus = bus;
+    s_reset = reset_coproc;
+    s_request = 0U;
+    s_level = 1U;
+    s_setpoint = 20;
+    s_ambient_x10 = HTR_AMBIENT_UNKNOWN;
+    s_type_select = HTR_TYPE_AUTO;
+    s_type_pending = 0U;
+    s_coproc_type = HTR_TYPE_AUTO;
+    s_identified = 0U;
+    s_ever_identified = 0U;
+    s_cmd_pending = 0U;
+    s_last_poll = now - HEATER_IDENT_RETRY_MS;
+    s_last_ok = now;
+    s_xport_seen = 0U;
+    s_xport_errors = 0U;
+    memset(&s_t, 0, sizeof(s_t));
+    s_t.target_level = 1U;
+    s_t.age_ms = 0xFFFFU;
 }
 
-void heater_init(const wk2132_i2c_t *bus, uint32_t now)
+static void xport_fail(uint32_t now)
 {
-    (void)WK2132_Init(&s_wk, bus, HEATER_WK2132_CHANNEL,
-                      HEATER_WK2132_IA1, HEATER_WK2132_IA0);
-    (void)WK2132_Begin4800_8N1(&s_wk);
-    (void)WK2132_FlushRx(&s_wk);
-    (void)VEVOR_Init(&s_vevor, &s_wk, now);
+    s_xport_errors++;
+    s_xport_seen = 1U;
+    s_last_xport = now;
+}
 
-    s_target_level = 1U;
-    s_request = 0U;
-    memset(&s_telemetry, 0, sizeof(s_telemetry));
-    s_prev_transport_errors = 0U;
-    s_last_xport_tick = 0U;
-    s_xport_seen = false;
+static uint8_t legacy_state(uint8_t phase)
+{
+    switch (phase) {
+    case HTR_PHASE_STARTING:       return 1U;
+    case HTR_PHASE_RUNNING:        return 3U;
+    case HTR_PHASE_STOP_REQUESTED:
+    case HTR_PHASE_COOLDOWN:       return 4U;
+    default:                       return 0U;   /* OFF, DETECTING, FAULT */
+    }
+}
+
+static void decode_status(const uint8_t *m)
+{
+    uint16_t f = le16(m, HTR_R_FLAGS);
+    uint16_t legacy = 0U;
+    s_t.phase = m[HTR_R_PHASE];
+    s_t.state = legacy_state(s_t.phase);
+    s_t.type = m[HTR_R_ACTIVE_TYPE];
+    s_t.active_level = m[HTR_R_ACTIVE_LEVEL];
+    s_t.error = m[HTR_R_FAULT_CODE];
+    if ((s_t.phase == HTR_PHASE_FAULT) && (s_t.error == 0U)) s_t.error = 0xFFU;
+    s_t.supply_mv = le16(m, HTR_R_SUPPLY_MV);
+    s_t.fan_rpm = le16(m, HTR_R_FAN_RPM);
+    s_t.pump_hz_x10 = le16(m, HTR_R_PUMP_HZ_X10);
+    s_t.exchanger_raw = le16(m, HTR_R_EXCH_RAW);
+    s_t.state_seconds = le16(m, HTR_R_STATE_SECONDS);
+    s_t.age_ms = le16(m, HTR_R_AGE_MS);
+    s_t.valid_frames = le16(m, HTR_R_VALID_FRAMES);
+    s_t.checksum_failures = le16(m, HTR_R_CRC_FAILS);
+    s_t.caps = le16(m, HTR_R_CAPS);
+    s_t.vendor_state = (uint16_t)(((uint16_t)m[HTR_R_VENDOR_STATE] << 8) | m[HTR_R_VENDOR_SUB]);
+    s_t.detect = (uint16_t)(((uint16_t)m[HTR_R_DETECT_RESULT] << 8) | m[HTR_R_LINE_SENSE]);
+    if (f & HTR_F_FRESH) legacy |= HEATER_FLAG_FRESH;
+    if ((s_t.phase == HTR_PHASE_STOP_REQUESTED) || (s_t.phase == HTR_PHASE_COOLDOWN)) legacy |= HEATER_FLAG_COOLDOWN;
+    if (f & HTR_F_SAFE_OFF) legacy |= HEATER_FLAG_SAFE_OFF;
+    if (f & HTR_F_COMMS_FAULT) legacy |= HEATER_FLAG_COMMS_FAULT;
+    s_t.flags = legacy;
+}
+
+static int identify(void)
+{
+    uint8_t id[2];
+    if (s_bus->read(s_bus->ctx, HTR_R_DEVICE_ID, id, 2U) != 0) return -1;
+    return ((id[0] == HTR_DEVICE_ID) && (id[1] == HTR_MAP_VERSION)) ? 1 : 0;
 }
 
 void heater_process(uint32_t now)
 {
-    uint16_t flags = 0U;
-    bool fresh;
-    bool safe_off;
+    uint8_t m[HTR_REG_COUNT];
+    uint8_t ctl[5];
+    int r;
+    if (s_bus == NULL) return;
 
-    VEVOR_Process(&s_vevor, now);
+    if (s_identified == 0U) {
+        if ((uint32_t)(now - s_last_poll) < HEATER_IDENT_RETRY_MS) goto publish;
+        s_last_poll = now;
+        r = identify();
+        /* A unit with no coprocessor fitted is absent, not faulted (spec 7). */
+        if (r < 0) { if (s_ever_identified) xport_fail(now); goto publish; }
+        if (r == 0) goto publish;            /* wrong device / map: never control it */
+        s_identified = 1U;
+        s_ever_identified = 1U;
+        s_last_ok = now;
+    }
+    if ((uint32_t)(now - s_last_poll) < HEATER_POLL_MS) goto publish;
+    s_last_poll = now;
 
-    fresh = VEVOR_IsResponseFresh(&s_vevor, now);
-    safe_off = VEVOR_IsSafeToPowerDown(&s_vevor, now);
+    ctl[0] = s_request;
+    ctl[1] = s_level;
+    ctl[2] = (uint8_t)s_setpoint;
+    ctl[3] = (uint8_t)((uint16_t)s_ambient_x10 & 0xFFU);
+    ctl[4] = (uint8_t)((uint16_t)s_ambient_x10 >> 8);
+    if (s_bus->write(s_bus->ctx, HTR_R_RUN_REQUEST, ctl, sizeof(ctl)) != 0) { xport_fail(now); goto lost_check; }
+    if (s_type_pending) {
+        if (s_bus->write(s_bus->ctx, HTR_R_HEATER_TYPE, &s_type_select, 1U) != 0) { xport_fail(now); goto lost_check; }
+        s_type_pending = 0U;
+    }
+    if (s_cmd_pending != 0U) {
+        if (s_bus->write(s_bus->ctx, HTR_R_COMMAND, &s_cmd_pending, 1U) != 0) { xport_fail(now); goto lost_check; }
+        s_cmd_pending = 0U;
+    }
+    /* One read covers control readback (0x10..) and the status block. */
+    if (s_bus->read(s_bus->ctx, HTR_R_HEATER_TYPE, &m[HTR_R_HEATER_TYPE],
+                    (uint16_t)(HTR_REG_COUNT - HTR_R_HEATER_TYPE)) != 0) {
+        xport_fail(now);
+        goto lost_check;
+    }
+    s_last_ok = now;
+    s_coproc_type = m[HTR_R_HEATER_TYPE];
+    s_t.cmd_result = m[HTR_R_CMD_RESULT];
+    decode_status(m);
+    /* A coprocessor FAULT latches our request off: a later coprocessor reset or
+       CLEAR_FAULT must never re-ignite on a stale ON. A new ON write re-arms. */
+    if (s_t.phase == HTR_PHASE_FAULT) s_request = 0U;
+    goto publish;
 
-    if (fresh) {
-        flags |= HEATER_FLAG_FRESH;
+lost_check:
+    if ((uint32_t)(now - s_last_ok) >= HEATER_LOST_MS) {
+        s_identified = 0U;                    /* re-identify; optional hard reset */
+        s_last_ok = now;
+        if (s_reset != NULL) s_reset();
     }
-    if (s_vevor.status.cooldown_flag) {
-        flags |= HEATER_FLAG_COOLDOWN;
-    }
-    if (safe_off) {
-        flags |= HEATER_FLAG_SAFE_OFF;
-    }
-    /* A lost link while commanded ON is a fault, never safe-off. */
-    if ((s_request == 1U) && !fresh) {
-        flags |= HEATER_FLAG_COMMS_FAULT;
-    }
-    if (s_vevor.transport_errors > s_prev_transport_errors) {
-        s_last_xport_tick = now;
-        s_xport_seen = true;
-    }
-    s_prev_transport_errors = s_vevor.transport_errors;
-    if (s_xport_seen &&
-        ((uint32_t)(now - s_last_xport_tick) <= HEATER_XPORT_STICKY_MS)) {
-        flags |= HEATER_FLAG_XPORT_FAULT;
-    }
-
-    s_telemetry.state            = s_vevor.status.state;
-    s_telemetry.active_level     = s_vevor.status.level;
-    s_telemetry.target_level     = s_target_level;
-    s_telemetry.error            = s_vevor.status.error;
-    s_telemetry.supply_mv        = s_vevor.status.supply_mv;
-    s_telemetry.fan_rpm          = s_vevor.status.fan_rpm;
-    s_telemetry.pump_hz_x10      = s_vevor.status.pump_hz_x10;
-    s_telemetry.exchanger_raw    = s_vevor.status.exchanger_raw;
-    s_telemetry.state_seconds    = s_vevor.status.state_seconds;
-    s_telemetry.age_ms           = saturate_u16(
-        (uint32_t)(now - s_vevor.status.received_tick));
-    s_telemetry.flags            = flags;
-    s_telemetry.valid_frames     = (uint16_t)(s_vevor.valid_frames & 0xFFFFU);
-    s_telemetry.checksum_failures = saturate_u16(s_vevor.checksum_failures);
-    s_telemetry.transport_errors  = saturate_u16(s_vevor.transport_errors);
-}
-
-void heater_set_request(uint8_t on)
-{
-    uint8_t prev = s_request;
-    s_request = (on != 0U) ? 1U : 0U;
-    if (s_request == 1U) {
-        if (prev == 0U) { (void)VEVOR_Start(&s_vevor, s_target_level); }  /* arm start burst only off->on */
-        /* prev==1: already running/starting — do NOT re-arm the START burst */
+publish:
+    s_t.present = s_identified;
+    s_t.target_level = s_level;
+    s_t.transport_errors = sat16(s_xport_errors);
+    if (s_xport_seen && ((uint32_t)(now - s_last_xport) <= HEATER_XPORT_STICKY_MS)) {
+        s_t.flags |= HEATER_FLAG_XPORT_FAULT;
     } else {
-        VEVOR_Stop(&s_vevor);
+        s_t.flags &= (uint16_t)~HEATER_FLAG_XPORT_FAULT;
+    }
+    if (s_identified == 0U) {
+        s_t.flags &= (uint16_t)~(HEATER_FLAG_FRESH | HEATER_FLAG_SAFE_OFF);
+        if (s_request) s_t.flags |= HEATER_FLAG_COMMS_FAULT;
     }
 }
 
-uint8_t heater_get_request(void)
+void    heater_set_request(uint8_t on) { s_request = (on != 0U) ? 1U : 0U; }
+uint8_t heater_get_request(void) { return s_request; }
+void    heater_set_level(uint8_t level) { if ((level >= 1U) && (level <= 10U)) s_level = level; }
+uint8_t heater_get_level(void) { return s_level; }
+void    heater_set_setpoint_c(int8_t c) { if ((c >= 5) && (c <= 30)) s_setpoint = c; }
+int8_t  heater_get_setpoint_c(void) { return s_setpoint; }
+void    heater_set_type_select(uint8_t type)
 {
-    return s_request;
+    s_type_select = type;      /* explicit Modbus write: always forwarded once */
+    s_type_pending = 1U;
 }
-
-void heater_set_level(uint8_t level)
+/* The coprocessor persists HEATER_TYPE, so report what it holds once known. */
+uint8_t heater_get_type_select(void) { return s_identified ? s_coproc_type : s_type_select; }
+void    heater_set_ambient_f(int16_t deg_f)
 {
-    if ((level < 1U) || (level > 10U)) {
-        return;
-    }
-    s_target_level = level;
-    if (s_request == 1U) {
-        (void)VEVOR_SetLevel(&s_vevor, level);
-    }
+    /* (F - 32) * 5/9, in tenths, rounded */
+    int32_t x10 = ((int32_t)deg_f - 32) * 50;
+    s_ambient_x10 = (int16_t)((x10 >= 0) ? ((x10 + 4) / 9) : ((x10 - 4) / 9));
 }
-
-uint8_t heater_get_level(void)
+bool heater_send_command(uint8_t cmd)
 {
-    return s_target_level;
+    if ((cmd < HTR_CMD_START) || (cmd > HTR_CMD_AUTO_DETECT)) return false;
+    s_cmd_pending = cmd;
+    return true;
 }
-
-void heater_get_telemetry(heater_telemetry_t *out)
-{
-    if (out == NULL) {
-        return;
-    }
-    *out = s_telemetry;
-}
+void heater_get_telemetry(heater_telemetry_t *out) { if (out != NULL) *out = s_t; }

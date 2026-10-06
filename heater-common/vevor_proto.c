@@ -1,4 +1,4 @@
-#include "vevor_heater.h"
+#include "vevor_proto.h"
 #include <string.h>
 
 #define VEVOR_TX_INTERVAL_MS       1000UL
@@ -92,7 +92,7 @@ static void parse_byte(VEVOR_t *heater, uint8_t byte, uint32_t now)
     }
 }
 
-bool VEVOR_Init(VEVOR_t *heater, WK2132_t *uart, uint32_t now)
+bool VEVOR_Init(VEVOR_t *heater, const htr_uart_t *uart, uint32_t now)
 {
     if ((heater == NULL) || (uart == NULL)) return false;
     memset(heater, 0, sizeof(*heater));
@@ -145,20 +145,15 @@ void VEVOR_Process(VEVOR_t *heater, uint32_t now)
 {
     uint8_t data[64];
     uint8_t tx[VEVOR_CONTROLLER_FRAME_SIZE];
-    size_t count = 0U;
+    size_t count;
     size_t i;
-    WK2132_Result_t result;
     if ((heater == NULL) || (heater->uart == NULL)) return;
 
     if ((uint32_t)(now - heater->last_rx_poll_tick) >=
         VEVOR_RX_POLL_INTERVAL_MS) {
         heater->last_rx_poll_tick = now;
-        result = WK2132_Read(heater->uart, data, sizeof(data), &count);
-        if (result != WK2132_OK) {
-            heater->transport_errors++;
-        } else {
-            for (i = 0U; i < count; ++i) parse_byte(heater, data[i], now);
-        }
+        count = heater->uart->read(heater->uart->ctx, data, sizeof(data));
+        for (i = 0U; i < count; ++i) parse_byte(heater, data[i], now);
     }
 
     if ((uint32_t)(now - heater->last_tx_tick) < VEVOR_TX_INTERVAL_MS) return;
@@ -172,8 +167,7 @@ void VEVOR_Process(VEVOR_t *heater, uint32_t now)
         VEVOR_BuildStopFrame(heater->requested_level, tx);
     }
 
-    result = WK2132_Write(heater->uart, tx, sizeof(tx));
-    if (result != WK2132_OK) {
+    if (heater->uart->write(heater->uart->ctx, tx, sizeof(tx)) != sizeof(tx)) {
         heater->transport_errors++;
         return;
     }
@@ -187,4 +181,3 @@ void VEVOR_Process(VEVOR_t *heater, uint32_t now)
         }
     }
 }
-

@@ -1,4 +1,5 @@
-#include "vevor_heater.h"
+#include "vevor_proto.h"
+#include "fake_htr_uart.h"
 #include "unity.h"
 #include <stdio.h>
 #include <string.h>
@@ -43,6 +44,23 @@ void test_capture_checksums_all_pass(void){
     TEST_ASSERT_GREATER_THAN(0,f1+f2);
     TEST_ASSERT_EQUAL_INT(0,b1+b2);      /* handoff: all ~1752 responses valid */
 }
+
+/* Through the htr_uart seam: first process() sends a STOP poll; a valid
+   56-byte reply decodes; a refused write counts a transport error. */
+void test_process_over_uart_seam(void){
+    fake_uart_t u; fake_uart_init(&u); VEVOR_t v;
+    TEST_ASSERT_TRUE(VEVOR_Init(&v,&u.api,0U));
+    VEVOR_Process(&v,0U);
+    TEST_ASSERT_EQUAL_size_t(1,u.writes); TEST_ASSERT_EQUAL_size_t(16,u.write_len[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x05,u.tx[9]);                     /* STOP state byte */
+    uint8_t r[56]={0}; r[0]=0xAA; r[1]=0x77; r[5]=3; r[6]=4; r[11]=126; r[55]=VEVOR_Checksum(r,55U);
+    fake_uart_inject(&u,r,56); VEVOR_Process(&v,20U);
+    TEST_ASSERT_EQUAL_UINT32(1,v.valid_frames);
+    TEST_ASSERT_EQUAL_UINT8(3,v.status.state); TEST_ASSERT_EQUAL_UINT16(12600,v.status.supply_mv);
+    u.refuse_write=true; VEVOR_Process(&v,1000U);
+    TEST_ASSERT_EQUAL_UINT32(1,v.transport_errors);
+}
 int main(void){ UNITY_BEGIN();
     RUN_TEST(test_build_frames_byte_exact);
-    RUN_TEST(test_capture_checksums_all_pass); return UNITY_END(); }
+    RUN_TEST(test_capture_checksums_all_pass);
+    RUN_TEST(test_process_over_uart_seam); return UNITY_END(); }

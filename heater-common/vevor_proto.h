@@ -1,7 +1,7 @@
-#ifndef VEVOR_HEATER_H
-#define VEVOR_HEATER_H
+#ifndef VEVOR_PROTO_H
+#define VEVOR_PROTO_H
 
-#include "wk2132.h"
+#include "htr_uart.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -37,7 +37,7 @@ typedef struct {
 } VEVOR_Status_t;
 
 typedef struct {
-    WK2132_t *uart;
+    const htr_uart_t *uart;
     VEVOR_RequestMode_t request_mode;
     uint8_t requested_level;
     uint8_t start_frames_remaining;
@@ -51,7 +51,7 @@ typedef struct {
     VEVOR_Status_t status;
 } VEVOR_t;
 
-bool VEVOR_Init(VEVOR_t *heater, WK2132_t *uart, uint32_t now);
+bool VEVOR_Init(VEVOR_t *heater, const htr_uart_t *uart, uint32_t now);
 void VEVOR_Process(VEVOR_t *heater, uint32_t now);
 bool VEVOR_Start(VEVOR_t *heater, uint8_t level);
 bool VEVOR_SetLevel(VEVOR_t *heater, uint8_t level);
@@ -66,4 +66,3 @@ void VEVOR_BuildStopFrame(uint8_t level, uint8_t out[16]);
 uint8_t VEVOR_Checksum(const uint8_t *frame, uint8_t checksum_index);
 
 #endif
-
