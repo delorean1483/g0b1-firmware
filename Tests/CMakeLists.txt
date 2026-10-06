@@ -160,3 +160,4 @@ add_heater_test(test_drv_vevor test_drv_vevor.c ${HCORE}/drv_vevor.c ${HC}/vevor
 add_heater_test(test_drv_autoterm test_drv_autoterm.c ${HCORE}/drv_autoterm.c ${HC}/autoterm_proto.c ${HC}/crc16_modbus.c fakes/fake_htr_uart.c)
 add_heater_test(test_htr_iface test_htr_iface.c ${HCORE}/htr_iface.c fakes/fake_htr_gpio.c)
 add_heater_test(test_htr_fsm test_htr_fsm.c ${HCORE}/htr_fsm.c ${HCORE}/htr_iface.c fakes/fake_htr_driver.c fakes/fake_htr_gpio.c fakes/fake_htr_uart.c)
+add_heater_test(test_htr_regs test_htr_regs.c ${HCORE}/htr_regs.c ${HCORE}/htr_fsm.c ${HCORE}/htr_iface.c fakes/fake_htr_driver.c fakes/fake_htr_gpio.c fakes/fake_htr_uart.c)
