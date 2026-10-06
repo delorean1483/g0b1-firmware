@@ -109,7 +109,9 @@ void test_start_timeout_faults_and_stops_without_cutting_power(void){
     htr_fsm_view_t v=view();
     TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_FAULT, v.phase);
     TEST_ASSERT_TRUE(v.flags & HTR_F_FAULT_LATCHED);
-    TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
+    /* stop on entry, then re-stopped (rate-limited) while it still reports starting */
+    TEST_ASSERT_GREATER_OR_EQUAL(1, (int)fake_ctx[0].stops);
+    TEST_ASSERT_LESS_OR_EQUAL(2, (int)fake_ctx[0].stops);
     TEST_ASSERT_EQUAL_UINT8(0, v.rq.run);
     TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_EN]);
 }
@@ -193,7 +195,55 @@ void test_full_cycle_across_tick_wrap(void){
     TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_RUNNING, view().phase);
     TEST_ASSERT_TRUE(view().flags & HTR_F_FRESH);
 }
+/* Review finding 1: a heater that is running/starting while nothing asks for
+   heat (coprocessor reset mid-run, or a start processed after a no-op stop)
+   must be told to stop, never left running under PHASE OFF. */
+void test_off_with_heater_reporting_running_sends_stop(void){
+    boot_found_3w(); fake_ctx[0].hint=HTR_HINT_RUNNING; tick_to(6500);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_STOP_REQUESTED, view().phase);
+    fake_ctx[0].hint=HTR_HINT_COOLDOWN; tick_to(7000);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_COOLDOWN, view().phase);
+}
+/* Finding 1: a standby report taken right after the stop may predate it. */
+void test_stop_requested_needs_a_settled_standby_report(void){
+    boot_found_3w(); req(1); fake_ctx[0].hint=HTR_HINT_RUNNING; tick_to(7000);
+    req(0); fake_ctx[0].hint=HTR_HINT_OFF; tick_to(7000 + 500);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_STOP_REQUESTED, view().phase);
+    tick_to(7000 + HTR_STOP_SETTLE_MS + 100);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, view().phase);
+}
+/* Finding 2: changing type must not be a way out of FAULT. */
+void test_type_change_rejected_in_fault(void){
+    boot_found_3w(); req(1); fake_ctx[0].hint=HTR_HINT_FAULT; tick_to(7000);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_FAULT, view().phase);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, htr_fsm_set_type(2u, now));
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_FAULT, view().phase);
+    TEST_ASSERT_TRUE(view().flags & HTR_F_FAULT_LATCHED);
+}
+/* Finding 5: a start that falls back to cooldown/standby is a failed start. */
+void test_start_falling_to_cooldown_faults_promptly(void){
+    boot_found_3w(); req(1); fake_ctx[0].hint=HTR_HINT_STARTING; tick_to(7000);
+    fake_ctx[0].hint=HTR_HINT_COOLDOWN; tick_to(7500);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_FAULT, view().phase);
+}
+void test_start_falling_back_to_standby_faults_promptly(void){
+    boot_found_3w(); req(1); fake_ctx[0].hint=HTR_HINT_STARTING; tick_to(7000);
+    fake_ctx[0].hint=HTR_HINT_OFF; tick_to(7500);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_FAULT, view().phase);
+}
+void test_standby_before_heater_acts_on_start_is_not_a_fault(void){
+    boot_found_3w(); req(1); tick_to(8000);               /* still reports standby: not yet acted */
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_STARTING, view().phase);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_off_with_heater_reporting_running_sends_stop);
+    RUN_TEST(test_stop_requested_needs_a_settled_standby_report);
+    RUN_TEST(test_type_change_rejected_in_fault);
+    RUN_TEST(test_start_falling_to_cooldown_faults_promptly);
+    RUN_TEST(test_start_falling_back_to_standby_faults_promptly);
+    RUN_TEST(test_standby_before_heater_acts_on_start_is_not_a_fault);
+
     RUN_TEST(test_full_cycle_across_tick_wrap);
     RUN_TEST(test_boot_is_tx_quiet_and_iface_off_for_3s);
     RUN_TEST(test_3w_signature_probes_only_3w_drivers_in_order);

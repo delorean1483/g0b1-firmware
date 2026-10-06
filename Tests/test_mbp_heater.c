@@ -42,10 +42,15 @@ static void test_ro_regs_reject_writes(void) {
     for (unsigned i = 0; i < sizeof ro / sizeof ro[0]; i++)
         TEST_ASSERT_EQUAL_INT_MESSAGE(MB_EXC_ILLEGAL_ADDRESS, mb_reg_write(ro[i], 1U), "RO reg accepted a write");
 }
-static void test_block_53_to_74_readable_and_75_out_of_range(void) {
+static void test_block_53_to_75_readable_and_76_out_of_range(void) {
     uint16_t v;
-    for (uint16_t r = 53U; r <= 74U; r++) TEST_ASSERT_EQUAL_INT_MESSAGE(MB_EXC_NONE, mb_reg_read(r, &v), "reg not readable");
-    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_read(75U, &v));
+    for (uint16_t r = 53U; r <= 75U; r++) TEST_ASSERT_EQUAL_INT_MESSAGE(MB_EXC_NONE, mb_reg_read(r, &v), "reg not readable");
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_read(76U, &v));
+}
+static void test_command_reg_75(void) {
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(75U, HTR_CMD_CLEAR_FAULT));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(75U, 0U));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(75U, 6U));
 }
 static void test_telemetry_mirrors_coprocessor(void) {
     c.regs[HTR_R_PHASE] = HTR_PHASE_RUNNING; c.regs[HTR_R_ACTIVE_TYPE] = HTR_TYPE_VEVOR;
@@ -67,7 +72,8 @@ int main(void) {
     RUN_TEST(test_out_of_range_rejected);
     RUN_TEST(test_setpoint_and_type_select_rw);
     RUN_TEST(test_ro_regs_reject_writes);
-    RUN_TEST(test_block_53_to_74_readable_and_75_out_of_range);
+    RUN_TEST(test_block_53_to_75_readable_and_76_out_of_range);
+    RUN_TEST(test_command_reg_75);
     RUN_TEST(test_telemetry_mirrors_coprocessor);
     return UNITY_END();
 }

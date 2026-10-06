@@ -13,6 +13,8 @@ static uint8_t  s_type_select = HTR_TYPE_AUTO;
 static uint8_t  s_type_pending;
 static uint8_t  s_coproc_type = HTR_TYPE_AUTO;   /* HEATER_TYPE as read back */
 static uint8_t  s_identified;
+static uint8_t  s_ever_identified;   /* NACKs only count as transport faults after this */
+static uint8_t  s_cmd_pending;       /* COMMAND to send once (0 = none) */
 static uint32_t s_last_poll, s_last_ok, s_last_xport;
 static uint8_t  s_xport_seen;
 static uint32_t s_xport_errors;
@@ -33,6 +35,8 @@ void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t 
     s_type_pending = 0U;
     s_coproc_type = HTR_TYPE_AUTO;
     s_identified = 0U;
+    s_ever_identified = 0U;
+    s_cmd_pending = 0U;
     s_last_poll = now - HEATER_IDENT_RETRY_MS;
     s_last_ok = now;
     s_xport_seen = 0U;
@@ -106,9 +110,11 @@ void heater_process(uint32_t now)
         if ((uint32_t)(now - s_last_poll) < HEATER_IDENT_RETRY_MS) goto publish;
         s_last_poll = now;
         r = identify();
-        if (r < 0) { xport_fail(now); goto publish; }
+        /* A unit with no coprocessor fitted is absent, not faulted (spec 7). */
+        if (r < 0) { if (s_ever_identified) xport_fail(now); goto publish; }
         if (r == 0) goto publish;            /* wrong device / map: never control it */
         s_identified = 1U;
+        s_ever_identified = 1U;
         s_last_ok = now;
     }
     if ((uint32_t)(now - s_last_poll) < HEATER_POLL_MS) goto publish;
@@ -124,6 +130,10 @@ void heater_process(uint32_t now)
         if (s_bus->write(s_bus->ctx, HTR_R_HEATER_TYPE, &s_type_select, 1U) != 0) { xport_fail(now); goto lost_check; }
         s_type_pending = 0U;
     }
+    if (s_cmd_pending != 0U) {
+        if (s_bus->write(s_bus->ctx, HTR_R_COMMAND, &s_cmd_pending, 1U) != 0) { xport_fail(now); goto lost_check; }
+        s_cmd_pending = 0U;
+    }
     /* One read covers control readback (0x10..) and the status block. */
     if (s_bus->read(s_bus->ctx, HTR_R_HEATER_TYPE, &m[HTR_R_HEATER_TYPE],
                     (uint16_t)(HTR_REG_COUNT - HTR_R_HEATER_TYPE)) != 0) {
@@ -132,7 +142,11 @@ void heater_process(uint32_t now)
     }
     s_last_ok = now;
     s_coproc_type = m[HTR_R_HEATER_TYPE];
+    s_t.cmd_result = m[HTR_R_CMD_RESULT];
     decode_status(m);
+    /* A coprocessor FAULT latches our request off: a later coprocessor reset or
+       CLEAR_FAULT must never re-ignite on a stale ON. A new ON write re-arms. */
+    if (s_t.phase == HTR_PHASE_FAULT) s_request = 0U;
     goto publish;
 
 lost_check:
@@ -174,5 +188,11 @@ void    heater_set_ambient_f(int16_t deg_f)
     /* (F - 32) * 5/9, in tenths, rounded */
     int32_t x10 = ((int32_t)deg_f - 32) * 50;
     s_ambient_x10 = (int16_t)((x10 >= 0) ? ((x10 + 4) / 9) : ((x10 - 4) / 9));
+}
+bool heater_send_command(uint8_t cmd)
+{
+    if ((cmd < HTR_CMD_START) || (cmd > HTR_CMD_AUTO_DETECT)) return false;
+    s_cmd_pending = cmd;
+    return true;
 }
 void heater_get_telemetry(heater_telemetry_t *out) { if (out != NULL) *out = s_t; }

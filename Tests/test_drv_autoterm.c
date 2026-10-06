@@ -159,7 +159,18 @@ void test_link_lost_rewakes_at_2400(void){
     TEST_ASSERT_TRUE(i != (size_t)-1 && i >= from);
     TEST_ASSERT_EQUAL_UINT32(2400u, u.write_baud[i]);
 }
+/* Finding 1: a standby status that may predate the stop must not ack it. */
+void test_stop_not_acked_by_standby_status_in_first_second(void){
+    uint32_t t = go_online(); hs_major = 0; hs_minor = 1;
+    d->stop(d->ctx); size_t from = u.writes;
+    run(t, t + 3000, false, NULL);
+    TEST_ASSERT_GREATER_OR_EQUAL(2, (int)count_cmd(AT_CMD_STOP, from));
+    from = u.writes; run(t + 3000, t + 8000, false, NULL);
+    TEST_ASSERT_EQUAL(0, count_cmd(AT_CMD_STOP, from));      /* acked once settled */
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_stop_not_acked_by_standby_status_in_first_second);
+
     RUN_TEST(test_identity);
     RUN_TEST(test_wake_sequence_bauds_counts_and_gaps);
     RUN_TEST(test_probe_found_when_version_answers_at_9600);

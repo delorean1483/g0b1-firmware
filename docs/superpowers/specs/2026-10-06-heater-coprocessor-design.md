@@ -185,7 +185,9 @@ BOOT ──(3 s TX-quiet)──► DETECTING ──found──► OFF ◄──�
 Phases (register value): 0 OFF, 1 DETECTING, 2 STARTING, 3 RUNNING, 4 STOP_REQUESTED, 5 COOLDOWN, 6 FAULT.
 
 Rules:
-1. **No autonomous restart.** Entering FAULT clears RUN_REQUEST; the driver keeps polling/sending stop. Restart needs `CLEAR_FAULT` (accepted only when the heater reports standby) then a new RUN_REQUEST.
+1. **No autonomous restart.** Entering FAULT clears RUN_REQUEST; the driver keeps polling/sending stop (re-sent, rate-limited, while the heater still reports starting/running). Restart needs `CLEAR_FAULT` (accepted only when the heater reports standby) then a new RUN_REQUEST. A HEATER_TYPE change is refused (BUSY) in FAULT so it cannot bypass that check.
+1a. **Never leave a heater burning unrequested.** In OFF with no run request, a fresh starting/running report → `driver->stop()` and STOP_REQUESTED (covers a coprocessor reset mid-run and a start processed after a no-op stop). STOP_REQUESTED → OFF needs a standby report at least `HTR_STOP_SETTLE_MS` (1.5 s) newer than the stop; the AUTOTERM driver likewise acks a stop only on a status ≥ 1 s after its first stop frame.
+1b. **Failed start.** In STARTING, a cooldown report, or a standby report after the heater had begun starting, → FAULT immediately (not after the 10-min timeout). A non-zero VEVOR error code is a FAULT hint (code values bench-confirm).
 2. **Comms loss is a flag**, not a transition: `COMMS_FAULT` = run requested ∧ ¬FRESH. The driver keeps sending its last request.
 3. **Never stop by removing power.** Every stop path (G0B1 command, host timeout, fault) goes through `driver->stop()` and cooldown. `5V_EN`/mux are only dropped when phase is OFF or DETECTING.
 4. **Boot TX-quiet:** no transmission for 3 s after reset, so the G0B1 can re-assert RUN_REQUEST before any probe/standby poll reaches a possibly running heater.
@@ -338,13 +340,15 @@ FLAGS: bit0 PRESENT, 1 FRESH, 2 SAFE_OFF, 3 COMMS_FAULT, 4 IFACE_POWERED, 5 HOST
 - Boot: read DEVICE_ID / MAP_VERSION. No ACK or wrong ID → `heater_present = 0` (absent, not a fault). Unknown MAP_VERSION → flag, identity reads only, no control.
 - Every 250 ms: write control block 0x11–0x15 (RUN_REQUEST, LEVEL, SETPOINT, AMBIENT) — rewriting every cycle keeps the host timer alive and self-heals a coprocessor reset — then one `mem_read` of 0x10–0x45 (control readback incl. the persisted HEATER_TYPE, plus status). HEATER_TYPE is written only on an explicit reg-74 write.
 - AMBIENT = G0B1 cabin temp (°F → °C×10). **Caveat:** today's cabin value is the PA0 enclosure stand-in, so AUTOTERM room regulation keys off enclosure temperature until a cab sensor exists.
+- A coprocessor FAULT latches the G0B1's own request off (`heater_request` reads 0); a new ON write re-arms. So neither a coprocessor reset nor CLEAR_FAULT can re-ignite on a stale ON.
+- No-ACK before the coprocessor was ever identified is *absent*: no XPORT_FAULT, no transport-error count.
 - Recovery: if the coprocessor is silent 5 s, drop back to identification and call an optional `reset_coproc` hook (pulses HPROC_nRST once a free G0B1 GPIO is assigned — open item 6; NULL until then).
 
 **Modbus (firmware reg N = wire N−1).** Regs 53–67 keep their frozen meaning so cortex v1.2.40+ works unchanged:
 - reg 55 `state` = generic phase collapsed to legacy codes: OFF/DETECTING/FAULT → 0, STARTING → 1, RUNNING → 3, STOP_REQUESTED/COOLDOWN → 4 (FAULT additionally sets reg 57 `error` = vendor fault code).
 - reg 64 `flags` bits 0–4 unchanged; bit 4 XPORT_FAULT now = G0B1↔coprocessor I²C failure.
 
-New (replaces the 68–70 reservation; `MB_REG_MAX` 70 → 74, `MB_REG_LIMIT` 71 → 75):
+New (replaces the 68–70 reservation; `MB_REG_MAX` 70 → 75, `MB_REG_LIMIT` 71 → 76):
 
 | fw reg | Name | RW | Meaning |
 |---|---|---|---|
@@ -355,6 +359,7 @@ New (replaces the 68–70 reservation; `MB_REG_MAX` 70 → 74, `MB_REG_LIMIT` 71
 | 72 | heater_vendor_state | RO | major<<8 \| sub |
 | 73 | heater_detect | RO | DETECT_RESULT<<8 \| LINE_SENSE |
 | 74 | heater_type_select | RW | HEATER_TYPE (0xFF AUTO) |
+| 75 | heater_command | RW | write 1 start, 2 stop, 3 clear-fault, 4 reinit, 5 auto-detect (forwarded once to COMMAND); read = last CMD_RESULT |
 
 ## 8. Testing
 

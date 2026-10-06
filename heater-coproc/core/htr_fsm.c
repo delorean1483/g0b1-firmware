@@ -29,6 +29,8 @@ static uint8_t  s_probe_wiring;
 static uint8_t  s_probe_idx;
 static bool     s_probe_inited;
 static uint32_t s_stale_since;
+static bool     s_heat_seen;      /* heater reported starting/running since this start */
+static uint32_t s_restop_tick;    /* rate limit for re-sending stop while FAULT */
 
 static const htr_uart_t *uart_for(uint8_t wiring)
 {
@@ -234,7 +236,13 @@ static void run_step(uint32_t now)
     case HTR_PHASE_OFF:
         if (s_rq.run) {
             s_drv->start(s_drv->ctx, &s_rq);
+            s_heat_seen = false;
             set_phase(HTR_PHASE_STARTING, now);
+        } else if ((h == HTR_HINT_STARTING) || (h == HTR_HINT_RUNNING)) {
+            /* Heater burning with nobody asking for heat (coprocessor reset
+               mid-run, or a start processed after a no-op stop): stop it. */
+            s_drv->stop(s_drv->ctx);
+            set_phase(HTR_PHASE_STOP_REQUESTED, now);
         } else if ((s_type_setting == HTR_TYPE_AUTO) &&
                    ((uint32_t)(now - s_stale_since) >= HTR_HOTSWAP_MS)) {
             begin_sense(now);                     /* hot-swap: only while OFF */
@@ -244,6 +252,10 @@ static void run_step(uint32_t now)
         if (!s_rq.run) { s_drv->stop(s_drv->ctx); set_phase(HTR_PHASE_STOP_REQUESTED, now); return; }
         if (h == HTR_HINT_FAULT) { enter_fault(now); return; }
         if (h == HTR_HINT_RUNNING) { set_phase(HTR_PHASE_RUNNING, now); return; }
+        if (h == HTR_HINT_STARTING) s_heat_seen = true;
+        /* Failed start: the heater fell back to cooldown, or to standby after
+           it had begun starting. (Standby before it acts on the start is normal.) */
+        if ((h == HTR_HINT_COOLDOWN) || ((h == HTR_HINT_OFF) && s_heat_seen)) { enter_fault(now); return; }
         if ((uint32_t)(now - s_phase_tick) >= HTR_START_TIMEOUT_MS) enter_fault(now);
         return;
     case HTR_PHASE_RUNNING:
@@ -253,14 +265,25 @@ static void run_step(uint32_t now)
         return;
     case HTR_PHASE_STOP_REQUESTED:
         if (h == HTR_HINT_COOLDOWN) { set_phase(HTR_PHASE_COOLDOWN, now); return; }
-        if (h == HTR_HINT_OFF) { set_phase(HTR_PHASE_OFF, now); return; }
+        /* Only a standby report clearly newer than the stop counts: one taken
+           just before (or as) the stop went out may predate it. */
+        if ((h == HTR_HINT_OFF) &&
+            ((int32_t)(st.last_rx_tick - s_phase_tick) >= (int32_t)HTR_STOP_SETTLE_MS)) {
+            set_phase(HTR_PHASE_OFF, now);
+            return;
+        }
         if ((uint32_t)(now - s_phase_tick) >= HTR_COOLDOWN_TIMEOUT_MS) enter_fault(now);
         return;
     case HTR_PHASE_COOLDOWN:
         if (h == HTR_HINT_OFF) { set_phase(HTR_PHASE_OFF, now); return; }
         if ((uint32_t)(now - s_phase_tick) >= HTR_COOLDOWN_TIMEOUT_MS) enter_fault(now);
         return;
-    default:  /* FAULT: keep talking (stop already requested), wait for CLEAR_FAULT */
+    default:  /* FAULT: keep talking, wait for CLEAR_FAULT; re-stop a heater still burning */
+        if (((h == HTR_HINT_STARTING) || (h == HTR_HINT_RUNNING)) &&
+            ((uint32_t)(now - s_restop_tick) >= 1000u)) {
+            s_restop_tick = now;
+            s_drv->stop(s_drv->ctx);
+        }
         return;
     }
 }
@@ -309,7 +332,8 @@ uint8_t htr_fsm_set_type(uint8_t type_setting, uint32_t now)
 {
     if ((type_setting != HTR_TYPE_AUTO) && (type_setting != HTR_TYPE_NONE) &&
         (driver_for_type(type_setting) == NULL)) return HTR_RES_NOT_SUPPORTED;
-    if (!idle_phase() || s_rq.run) return HTR_RES_BUSY;
+    /* FAULT exits only through CLEAR_FAULT (heater fresh in standby). */
+    if (!idle_phase() || s_rq.run || (s_phase == HTR_PHASE_FAULT)) return HTR_RES_BUSY;
     s_type_setting = type_setting;
     s_fault_latched = false;
     start_detection(now, false);

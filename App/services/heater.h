@@ -5,6 +5,7 @@
    and the start/run/cooldown state machine; this service only relays the
    request and mirrors status into the Modbus provider (mbp_heater). */
 #include "i2c_backend.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct {
@@ -29,6 +30,7 @@ typedef struct {
     uint16_t vendor_state;      /* major<<8 | sub */
     uint16_t detect;            /* DETECT_RESULT<<8 | LINE_SENSE */
     uint8_t  present;           /* coprocessor identified (DEVICE_ID + MAP_VERSION ok) */
+    uint8_t  cmd_result;        /* coprocessor CMD_RESULT of the last command (HTR_RES_*) */
 } heater_telemetry_t;
 
 #define HEATER_FLAG_FRESH       (1U << 0)
@@ -54,5 +56,8 @@ int8_t  heater_get_setpoint_c(void);
 void    heater_set_type_select(uint8_t type);     /* HTR_TYPE_*; forwarded once per call */
 uint8_t heater_get_type_select(void);
 void    heater_set_ambient_f(int16_t deg_f);      /* cabin temp for AUTOTERM regulation */
+/* Queue one coprocessor COMMAND (HTR_CMD_START..HTR_CMD_AUTO_DETECT), sent
+   once at the next poll. False for an unknown command. */
+bool    heater_send_command(uint8_t cmd);
 void    heater_get_telemetry(heater_telemetry_t *out);
 #endif /* HEATER_H */

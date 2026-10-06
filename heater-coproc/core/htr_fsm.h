@@ -16,6 +16,7 @@
 #define HTR_HOTSWAP_MS        30000u
 #define HTR_START_TIMEOUT_MS  (10u * 60u * 1000u)
 #define HTR_COOLDOWN_TIMEOUT_MS (15u * 60u * 1000u)
+#define HTR_STOP_SETTLE_MS     1500u   /* standby report must be this much newer than the stop */
 
 typedef struct {
     const htr_driver_t *const *drivers;

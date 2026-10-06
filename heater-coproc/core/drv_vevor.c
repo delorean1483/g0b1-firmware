@@ -51,8 +51,9 @@ static htr_probe_t v_probe(void *ctx, uint32_t now)
     return HTR_PROBE_BUSY;
 }
 
-static uint8_t hint_for(uint8_t state)
+static uint8_t hint_for(uint8_t state, uint8_t error)
 {
+    if (error != 0u) return HTR_HINT_FAULT;   /* heater-reported error code (bench-confirm codes) */
     switch (state) {
     case VEVOR_REPORTED_OFF:      return HTR_HINT_OFF;
     case VEVOR_REPORTED_PREHEAT:
@@ -74,7 +75,7 @@ static void v_status(const void *ctx, uint32_t now, htr_status_t *out)
     if (!v->status.valid) return;
     out->any_rx = true;
     out->last_rx_tick = v->status.received_tick;
-    out->hint = hint_for(v->status.state);
+    out->hint = hint_for(v->status.state, v->status.error);
     out->vendor_state = v->status.state;
     out->fault_code = v->status.error;
     out->active_level = v->status.level;

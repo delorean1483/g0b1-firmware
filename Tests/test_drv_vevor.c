@@ -58,7 +58,16 @@ void test_status_maps_states_and_valid_bits(void){
     TEST_ASSERT_TRUE(s.valid & HTR_V_SUPPLY_MV);
     TEST_ASSERT_FALSE(s.valid & HTR_V_EXCH_C);              /* never characterised */
 }
+/* Finding 5: a VEVOR error code is a fault indication. */
+void test_error_code_maps_to_fault_hint(void){
+    htr_status_t s; reply(3,5,7); drv_vevor.process(drv_vevor.ctx,100U);
+    drv_vevor.status(drv_vevor.ctx,0U,&s);
+    TEST_ASSERT_EQUAL_UINT8(HTR_HINT_FAULT, s.hint);
+    TEST_ASSERT_EQUAL_UINT8(7, s.fault_code);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_error_code_maps_to_fault_hint);
+
     RUN_TEST(test_identity);
     RUN_TEST(test_probe_found_on_valid_reply_and_sends_only_stop_polls);
     RUN_TEST(test_probe_absent_after_timeout_with_only_stop_polls);

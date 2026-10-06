@@ -33,6 +33,13 @@ static modbus_exc_t wr_type_select(uint16_t reg, uint16_t v) {
     return MB_EXC_NONE;
 }
 
+static modbus_exc_t rd_command(uint16_t reg, uint16_t *o) { heater_telemetry_t t = tel(); (void)reg; *o = t.cmd_result; return MB_EXC_NONE; }
+static modbus_exc_t wr_command(uint16_t reg, uint16_t v) {
+    (void)reg;
+    if ((v > 0xFFU) || !heater_send_command((uint8_t)v)) { return MB_EXC_ILLEGAL_VALUE; }
+    return MB_EXC_NONE;
+}
+
 /* Read-only telemetry: one tiny reader per register. */
 #define RO(name, expr) \
     static modbus_exc_t name(uint16_t reg, uint16_t *o) { heater_telemetry_t t = tel(); (void)reg; *o = (uint16_t)(expr); return MB_EXC_NONE; }
@@ -78,4 +85,5 @@ void mbp_heater_register(void) {
     mb_reg_bind(72, rd_vendor_state,      0);
     mb_reg_bind(73, rd_detect,            0);
     mb_reg_bind(74, rd_type_select,       wr_type_select);
+    mb_reg_bind(75, rd_command,           wr_command);
 }

@@ -115,8 +115,38 @@ void test_no_coprocessor_at_boot(void){
     TEST_ASSERT_EQUAL(0u, c.writes);
     TEST_ASSERT_TRUE(c.reads >= 9 && c.reads <= 11);
     TEST_ASSERT_EQUAL_UINT8(0, tel().state);
+    /* Review finding 4: absent is not a fault. */
+    TEST_ASSERT_FALSE(tel().flags & HEATER_FLAG_XPORT_FAULT);
+    TEST_ASSERT_EQUAL_UINT16(0, tel().transport_errors);
+}
+/* Review finding 3: a coprocessor FAULT latches the G0B1's request off, so
+   a later coprocessor reset or CLEAR_FAULT can never re-ignite on a stale ON. */
+void test_fault_latches_request_off(void){
+    heater_set_request(1); run_to(1500);
+    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    c.regs[HTR_R_PHASE] = HTR_PHASE_FAULT; run_to(2000);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    run_to(2500);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+}
+/* Finding 3: commands (clear-fault etc.) reach the coprocessor once. */
+void test_command_forwarded_once_and_result_read_back(void){
+    run_to(1500);
+    c.regs[HTR_R_CMD_RESULT] = HTR_RES_BUSY;
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_CLEAR_FAULT));
+    unsigned w0 = c.writes; run_to(1800);
+    TEST_ASSERT_EQUAL_UINT8(HTR_CMD_CLEAR_FAULT, c.regs[HTR_R_COMMAND]);
+    c.regs[HTR_R_COMMAND] = 0; run_to(3000);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_COMMAND]);       /* not repeated */
+    TEST_ASSERT_TRUE(c.writes - w0 <= 7);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, tel().cmd_result);
+    TEST_ASSERT_FALSE(heater_send_command(0));
+    TEST_ASSERT_FALSE(heater_send_command(6));
 }
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_fault_latches_request_off);
+    RUN_TEST(test_command_forwarded_once_and_result_read_back);
+
     RUN_TEST(test_no_coprocessor_at_boot);
     RUN_TEST(test_identifies_then_writes_control_block_every_250ms);
     RUN_TEST(test_wrong_device_is_absent_and_never_written);

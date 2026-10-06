@@ -31,6 +31,8 @@ typedef struct {
     bool      settings_dirty;
     uint32_t  last_cmd_tx;
     bool      cmd_due;         /* send start/stop at the next TX slot */
+    bool      stop_sent;       /* a stop frame has gone out since stop() */
+    uint32_t  stop_first_tx;   /* when the first such stop went out */
     int8_t    setpoint_c;
     int16_t   ambient_c_x10;
     /* last decoded status */
@@ -102,7 +104,12 @@ static void rx(at_ctx_t *c, uint32_t now)
                 /* Start acknowledged once the heater leaves standby; stop once it
                    leaves starting/running (cooldown or standby). */
                 if (c->start_pending && (c->st.major != 0u)) c->start_pending = false;
-                if (c->stop_pending && ((c->st.major == 0u) || (c->st.major == 4u))) {
+                /* A stop is acked only by a status at least one retry interval
+                   after the first stop went out: an earlier standby report may
+                   predate the stop (or a start the heater has yet to act on). */
+                if (c->stop_pending && c->stop_sent &&
+                    ((uint32_t)(now - c->stop_first_tx) >= AT_CMD_RETRY_MS) &&
+                    ((c->st.major == 0u) || (c->st.major == 4u))) {
                     c->stop_pending = false;
                 }
             }
@@ -153,6 +160,7 @@ static void online_step(at_ctx_t *c, uint32_t now)
     if (c->stop_pending &&
         (c->cmd_due || ((uint32_t)(now - c->last_cmd_tx) >= AT_CMD_RETRY_MS))) {
         tx_simple(c, AT_CMD_STOP, now);
+        if (!c->stop_sent) { c->stop_sent = true; c->stop_first_tx = now; }
         c->last_cmd_tx = now;
         c->cmd_due = false;
         return;
@@ -229,6 +237,7 @@ static void a_stop(void *ctx)
     c->want_run = false;
     c->start_pending = false;
     c->stop_pending = true;
+    c->stop_sent = false;
     c->cmd_due = true;
 }
 

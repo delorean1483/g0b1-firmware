@@ -68,12 +68,29 @@ void test_full_chain_detect_start_run_stop_cooldown(void){
     TEST_ASSERT_TRUE(tel().flags & HEATER_FLAG_SAFE_OFF);
 }
 void test_g0b1_rewriting_run_keeps_host_timeout_alive(void){
-    both_to(7000); heater_set_request(1); fake_ctx[0].hint = HTR_HINT_RUNNING;
+    both_to(7000); heater_set_request(1); both_to(7600);   /* request reaches the coprocessor first */
+    fake_ctx[0].hint = HTR_HINT_RUNNING;
     both_to(7000 + 15u * 60000u);                             /* 15 min > default 10 min timeout */
     TEST_ASSERT_EQUAL(0u, fake_ctx[0].stops);
     TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_RUNNING, tel().phase);
 }
+/* Finding 3, end to end: fault -> request latched off -> clear-fault from
+   the G0B1 -> OFF, and the heater is NOT restarted until a new ON. */
+void test_fault_then_clear_from_g0b1_does_not_reignite(void){
+    both_to(7000); heater_set_request(1); fake_ctx[0].hint = HTR_HINT_FAULT; both_to(8000);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_FAULT, tel().phase);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    fake_ctx[0].hint = HTR_HINT_OFF; both_to(9000);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_CLEAR_FAULT)); both_to(10000);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, tel().phase);
+    both_to(15000);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
+    heater_set_request(1); both_to(15600);
+    TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_fault_then_clear_from_g0b1_does_not_reignite);
+
     RUN_TEST(test_full_chain_detect_start_run_stop_cooldown);
     RUN_TEST(test_g0b1_rewriting_run_keeps_host_timeout_alive);
     return UNITY_END(); }

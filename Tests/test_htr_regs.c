@@ -147,6 +147,8 @@ void test_commands(void){
     TEST_ASSERT_EQUAL_UINT8(0, rd8(HTR_R_RUN_REQUEST)); TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
     mwrite1(HTR_R_COMMAND, 99); loop_to(7400);
     TEST_ASSERT_EQUAL_UINT8(HTR_RES_BAD_ARG, rd8(HTR_R_CMD_RESULT));
+    loop_to(7300 + HTR_STOP_SETTLE_MS + 200);           /* stop settles to OFF before a type change */
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, rd8(HTR_R_PHASE));
     mwrite1(HTR_R_HEATER_TYPE, HTR_TYPE_NONE); loop_to(30000);
     mwrite1(HTR_R_COMMAND, HTR_CMD_START); loop_to(30100);
     TEST_ASSERT_EQUAL_UINT8(HTR_RES_NO_TYPE, rd8(HTR_R_CMD_RESULT));
