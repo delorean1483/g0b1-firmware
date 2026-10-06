@@ -156,3 +156,4 @@ add_heater_test(test_autoterm_proto test_autoterm_proto.c ${HC}/autoterm_proto.c
 set_tests_properties(test_autoterm_proto PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 add_heater_test(test_vevor_proto test_vevor_proto.c ${HC}/vevor_proto.c fakes/fake_htr_uart.c)
 set_tests_properties(test_vevor_proto PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_heater_test(test_drv_vevor test_drv_vevor.c ${HCORE}/drv_vevor.c ${HC}/vevor_proto.c fakes/fake_htr_uart.c)
