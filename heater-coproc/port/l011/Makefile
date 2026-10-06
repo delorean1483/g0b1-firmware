@@ -27,8 +27,16 @@ LDFLAGS := $(ARCH) -T l011.ld --specs=nano.specs --specs=nosys.specs -nostartfil
            -Wl,--gc-sections -Wl,-Map=$(BUILD)/heater-l011.map \
            -Wl,--print-memory-usage -Wl,--no-warn-rwx-segments
 
-SRC_C := main.c port_sys.c port_gpio.c \
-         vendor/cmsis_device/system_stm32l0xx.c
+SRC_C := main.c port_sys.c port_gpio.c port_uart.c port_i2c_slave.c port_nv.c \
+         vendor/cmsis_device/system_stm32l0xx.c \
+         $(ROOT)/heater-common/crc16_modbus.c \
+         $(ROOT)/heater-common/vevor_proto.c \
+         $(ROOT)/heater-common/autoterm_proto.c \
+         $(ROOT)/heater-coproc/core/drv_vevor.c \
+         $(ROOT)/heater-coproc/core/drv_autoterm.c \
+         $(ROOT)/heater-coproc/core/htr_iface.c \
+         $(ROOT)/heater-coproc/core/htr_fsm.c \
+         $(ROOT)/heater-coproc/core/htr_regs.c
 SRC_S := vendor/cmsis_device/startup_stm32l011xx.s
 
 OBJS := $(addprefix $(OBJDIR)/,$(notdir $(SRC_C:.c=.o)) $(notdir $(SRC_S:.s=.o)))
