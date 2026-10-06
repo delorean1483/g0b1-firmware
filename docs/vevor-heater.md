@@ -1,5 +1,7 @@
 # VEVOR XMZ-F-D5 Diesel Heater — Firmware Bring-Up, Register Map, and Safety
 
+> **Superseded (2026-10-06):** the G0B1 no longer talks to the heater directly. The VEVOR protocol now runs on the heater coprocessor (`heater-common/vevor_proto.c`), reached over I²C at 0x64 — see `docs/heater-coprocessor.md`. The WK2132/DFR0627 bridge sections below are historical. The protocol, safety rules and Modbus regs 53–67 described here still hold.
+
 **Purpose:** control a VEVOR XMZ-F-D5 diesel air heater by relaying start/stop/level commands to the heater's own ECU and reporting its telemetry over Modbus. The heater ECU retains full control of combustion, glow plug, fuel pump, fan, ignition, faults, and multi-minute startup/cooldown sequences. The STM32 acts as a relay and reporter—never a combustion controller.
 
 ---

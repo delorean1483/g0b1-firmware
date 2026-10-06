@@ -13,7 +13,7 @@
 #include "sensors_cal.h"  /* VREF_CAL_DEFAULT (scalar defines only without OWNER) */
 #include "drv_bsp_adc.h"  /* Task 8: concrete ADC1+DMA feed for sensors */
 #include "drv_rpm_tim3.h" /* Task 9: concrete TIM3_CH1 tach capture -> rpm_source_t */
-#include "drv_wk2132_i2c2.h" /* Task 12: concrete I2C2 WK2132 backend for the VEVOR heater */
+#include "drv_heater_i2c2.h" /* I2C2 backend for the heater coprocessor (0x64) */
 #include "mb_engine.h"       /* portable Modbus RTU engine (App/services) */
 #include "mbp_sys.h"         /* portable system provider (fw-rev/reset regs) */
 #include "mbp_nvm.h"         /* portable NVM Modbus provider (persisted regs) */
@@ -26,8 +26,9 @@
 #include "mbp_boot.h"         /* reg-35 enter-bootloader Modbus command */
 #include "app_confirm.h"      /* self-confirm active A/B slot when healthy */
 #include "drv_iflash.h"       /* internal-flash backend (bootcfg store) */
-#include "heater.h"          /* portable VEVOR diesel heater service (App/services) */
-#include "mbp_heater.h"      /* heater Modbus provider (regs 53-67) */
+#include "heater.h"          /* heater coprocessor client (App/services) */
+#include "mbp_heater.h"      /* heater Modbus provider (regs 53-74) */
+#include "sensors.h"         /* cabin (enclosure) temp -> heater ambient */
 
 extern IWDG_HandleTypeDef hiwdg;  /* Task 10: CubeMX-generated (MX_IWDG_Init, ~2 s) */
 
@@ -244,15 +245,11 @@ void app_main(void)
      * backup (VBATEN) on the first set-time. Bound before its Modbus provider. */
     rtc_init(drv_mcp7940n_backend());
 
-    /* Task 12 — VEVOR diesel heater over WK2132/I2C2. heater_init stashes the
-     * backend, opens the WK2132 UART bridge at 4800 8N1 and flushes its RX
-     * FIFO. The bridge is OPTIONAL hardware: if it isn't detected on I2C2
-     * (WK2132_NOT_DETECTED), heater_init does not block or fault boot — the
-     * APU must run with no heater attached. NOTE: hi2c2 does not exist until
-     * the user applies the CubeMX I2C2 enable step (PA11 SCL / PB14 SDA,
-     * open-drain, 100 kHz) — see docs/vevor-heater.md Task 7 and
-     * drv_wk2132_i2c2.h; until then this call site will not link. */
-    heater_init(drv_wk2132_i2c2_backend(), HAL_GetTick());
+    /* Heater coprocessor (EF-L011 / C011) on I2C2 at 0x64. Optional hardware:
+     * heater_init only stashes the backend; an absent coprocessor is reported
+     * as heater_present=0 and never blocks or faults boot. No nRST GPIO is
+     * wired yet (spec open item 6), so no reset hook. */
+    heater_init(drv_heater_i2c2_backend(), NULL, HAL_GetTick());
 
     /* Task 8 — sensor conversion service + ADC1 feed. sensors_init sets the
      * per-channel averaging windows (must run before any sample) and the VREF
@@ -280,7 +277,7 @@ void app_main(void)
     mbp_nvm_register();               /* persisted regs (runtime hrs, settings, flags) */
     mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
     mbp_sensors_register(drv_rpm_source()); /* Task 8/9: temp/batt regs 1/3/6/51 + reg 38 live RPM */
-    mbp_heater_register();            /* Task 12: VEVOR heater regs 53-67 (command + telemetry) */
+    mbp_heater_register();            /* heater regs 53-74 (command + telemetry) */
 
     /* Task 11 — control application: init the shared apu_ctx, register the six
      * OP_* mode handlers, and bind the control registers (2,4,5,10,17,18,22,23,
@@ -328,10 +325,8 @@ void app_main(void)
             sched_run();         /* dispatch due slots to their handlers */
         }
         drv_modbus_uart_poll();  /* drain any assembled RTU frame -> engine -> DMA TX */
-        heater_process(now);     /* Task 12: service the VEVOR heater FSM every pass (far
-                                   * faster than its 10 ms RX-poll cadence); kept in the
-                                   * superloop, not a sched slot, to stay decoupled from
-                                   * control_app.c. */
+        heater_set_ambient_f(sensors_get_encl_temp_f()); /* AUTOTERM room temp (enclosure stand-in) */
+        heater_process(now);     /* coprocessor client: self-paced at 250 ms */
         HAL_IWDG_Refresh(&hiwdg);/* Task 10: kick the watchdog once per superloop pass */
     }
 }
