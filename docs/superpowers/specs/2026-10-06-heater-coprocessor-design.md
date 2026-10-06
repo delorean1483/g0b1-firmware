@@ -30,7 +30,7 @@ heater header — using non-blocking firmware that ports to the C011.
 | D2 | G0B1 loss: **controlled stop after a timeout** (default 10 min, configurable) — normal protocol stop + cooldown, never a power cut. |
 | D3 | AUTOTERM control = verified **setpoint °C + automatic power**; the G0B1 supplies the cabin temperature (forwarded as message 0x11). LEVEL 1–10 applies to level-type heaters (VEVOR). AUTOTERM fixed-power mode is out of scope. |
 | D4 | Code lives in `g0b1-firmware` (shared portable code + existing Unity/CMake host suite). |
-| D5 | Hardware layer = **ST LL drivers** + HAL-free portable core (full HAL does not fit 16 KB). |
+| D5 | Hardware layer below HAL (full HAL does not fit 16 KB) + HAL-free portable core. *Planning refinement:* the L011 port uses CMSIS register access directly (smaller than LL, measured 10.4 KB flash / 1.5 KB RAM) and builds with a plain Makefile like `boot/`, not a CubeIDE project. |
 | D6 | Multi-heater by design: every heater is a driver behind one vtable; adding one touches no FSM / register-map / G0B1 / cortex code. |
 | D7 | **Auto-detection is the primary mode**: the header accepts a 3-wire or 4-wire heater and the firmware determines wiring class and protocol itself. Forced type is a bench override. |
 
@@ -105,16 +105,16 @@ g0b1-firmware/
 │   │   ├── htr_driver.h           driver vtable + registry
 │   │   ├── htr_fsm.c/.h           generic state machine + auto-detect
 │   │   ├── htr_iface.c/.h         routing / power sequencing via a GPIO seam
-│   │   ├── (control-line levels come from port/<mcu>/htr_board.h)
 │   │   ├── htr_regs.c/.h          register file, snapshot, command dispatch, host timeout
 │   │   └── htr_nv.h               non-volatile settings seam
 │   ├── port/l011/                 the ONLY MCU/board-specific code (LL)
 │   │   ├── htr_board.h            pins, UART↔wiring map, active levels (from schematic)
-│   │   ├── port_uart.c            LPUART1 + USART2 IRQ, 64 B RX/TX rings, echo strip
+│   │   ├── port_uart.c            LPUART1 + USART2 IRQ, 64 B RX / 32 B TX rings, echo strip
 │   │   ├── port_i2c_slave.c       I2C1 slave IRQ state machine
 │   │   ├── port_gpio.c, port_tick.c (SysTick 1 ms), port_nv.c (data EEPROM)
-│   │   └── main.c                 init + superloop
-│   └── cube-l011/                 CubeIDE project (LL, HSI16, -Os)
+│   │   ├── main.c                 init + superloop
+│   │   ├── Makefile, l011.ld      arm-none-eabi build + 16 KB/2 KB size gate
+│   │   └── vendor/cmsis_device/   ST cmsis_device_l0 v1.9.4 (pinned)
 ├── App/services/heater_coproc.c/.h  G0B1 I²C client (replaces wk2132.c + vevor_heater.c)
 └── Tests/                         new host tests + fixtures
 ```
@@ -123,7 +123,7 @@ Superloop (no blocking anywhere): `regs_poll(now)` → `fsm_process(now)` →
 `driver->process(now)` → `regs_publish(now)` → IWDG refresh (≈2 s, armed after
 init, frozen in debug). ISRs only move bytes between peripherals and rings.
 
-**C011 port** = new `port/c011/` + new Cube project. `heater-common/` and
+**C011 port** = new `port/c011/` (own `htr_board.h`, Makefile, linker script). `heater-common/` and
 `heater-coproc/core/` move unchanged; the register map is identical except `HW_ID`.
 
 ### 3.1 Driver interface (multi-heater)
@@ -131,10 +131,10 @@ init, frozen in debug). ISRs only move bytes between peripherals and rings.
 ```c
 typedef struct {
     uint8_t     type_id;      /* HTR_TYPE_VEVOR=1, HTR_TYPE_AUTOTERM=2, next=3 ... */
-    const char *name;
     uint8_t     wiring;       /* HTR_WIRING_3W | HTR_WIRING_4W: selects UART + mux mode */
     uint16_t    caps;         /* CAP_LEVEL, CAP_SETPOINT, CAP_AMBIENT_IN, CAP_FAN_RPM,
                                  CAP_PUMP, CAP_SUPPLY_V, CAP_EXCH_TEMP, CAP_FAULT_CODE */
+    void       *ctx;          /* driver-private state */
     void (*init)(void *ctx, htr_uart_t *u, uint32_t now);
     void (*process)(void *ctx, uint32_t now);
     void (*start)(void *ctx, const htr_request_t *rq);
@@ -189,9 +189,10 @@ Rules:
 2. **Comms loss is a flag**, not a transition: `COMMS_FAULT` = run requested ∧ ¬FRESH. The driver keeps sending its last request.
 3. **Never stop by removing power.** Every stop path (G0B1 command, host timeout, fault) goes through `driver->stop()` and cooldown. `5V_EN`/mux are only dropped when phase is OFF or DETECTING.
 4. **Boot TX-quiet:** no transmission for 3 s after reset, so the G0B1 can re-assert RUN_REQUEST before any probe/standby poll reaches a possibly running heater.
-5. **Timeouts:** STARTING > 10 min → FAULT. COOLDOWN > 15 min → FAULT (still polling). STOP_REQUESTED: stop re-sent every 1 s until the heater leaves its running states.
-6. **OFF keeps polling** (VEVOR 1 Hz stop poll; AUTOTERM 0x0F) so PRESENT / FRESH / SAFE_OFF stay current.
-7. **Freshness:** FRESH = valid frame within the last 3 s.
+5. **Unexpected stop:** in RUNNING with run still requested, a fresh heater report of cooldown or standby (the heater stopped on its own) → FAULT. *Bench item: confirm AUTOTERM does not idle to standby at setpoint in auto-power mode (open item 5).*
+6. **Timeouts:** STARTING > 10 min → FAULT. COOLDOWN > 15 min → FAULT (still polling). STOP_REQUESTED: stop re-sent every 1 s until the heater leaves its running states.
+7. **OFF keeps polling** (VEVOR 1 Hz stop poll; AUTOTERM 0x0F) so PRESENT / FRESH / SAFE_OFF stay current.
+8. **Freshness:** FRESH = valid frame within the last 3 s.
 
 ### 4.1 Auto-detection (phase DETECTING)
 
@@ -335,9 +336,9 @@ FLAGS: bit0 PRESENT, 1 FRESH, 2 SAFE_OFF, 3 COMMS_FAULT, 4 IFACE_POWERED, 5 HOST
 
 - Bus: I2C2 PA11/PB14 (former DFR0627 pins, now HDR2) via the RTC-style `i2c_backend_t` seam → host-testable against a fake 0x64.
 - Boot: read DEVICE_ID / MAP_VERSION. No ACK or wrong ID → `heater_present = 0` (absent, not a fault). Unknown MAP_VERSION → flag, identity reads only, no control.
-- Every 250 ms: write control block 0x11–0x14 (RUN_REQUEST, LEVEL, SETPOINT, AMBIENT) — rewriting every cycle keeps the host timer alive and self-heals a coprocessor reset — then one `mem_read` of 0x20–0x45.
+- Every 250 ms: write control block 0x11–0x15 (RUN_REQUEST, LEVEL, SETPOINT, AMBIENT) — rewriting every cycle keeps the host timer alive and self-heals a coprocessor reset — then one `mem_read` of 0x10–0x45 (control readback incl. the persisted HEATER_TYPE, plus status). HEATER_TYPE is written only on an explicit reg-74 write.
 - AMBIENT = G0B1 cabin temp (°F → °C×10). **Caveat:** today's cabin value is the PA0 enclosure stand-in, so AUTOTERM room regulation keys off enclosure temperature until a cab sensor exists.
-- Recovery: if the coprocessor is silent 5 s, pulse HPROC_nRST (needs a free G0B1 GPIO — bench item) or fall back to `REINIT_IFACE`.
+- Recovery: if the coprocessor is silent 5 s, drop back to identification and call an optional `reset_coproc` hook (pulses HPROC_nRST once a free G0B1 GPIO is assigned — open item 6; NULL until then).
 
 **Modbus (firmware reg N = wire N−1).** Regs 53–67 keep their frozen meaning so cortex v1.2.40+ works unchanged:
 - reg 55 `state` = generic phase collapsed to legacy codes: OFF/DETECTING/FAULT → 0, STARTING → 1, RUNNING → 3, STOP_REQUESTED/COOLDOWN → 4 (FAULT additionally sets reg 57 `error` = vendor fault code).
@@ -393,6 +394,6 @@ New (replaces the 68–70 reservation; `MB_REG_MAX` 70 → 74, `MB_REG_LIMIT` 71
 2. Whether the 3-wire path needs +5V_HTR.
 3. LM393 RX polarity on both channels (assumed non-inverting).
 4. AUTOTERM TX idle level while asleep (drives auto-detect); open-input line levels.
-5. AUTOTERM steady full-power state code; fault codes; scaling of temp/fan/pump fields.
+5. AUTOTERM steady full-power state code; whether it idles to standby at setpoint in auto-power mode (would trip the unexpected-stop FAULT rule); fault codes; scaling of temp/fan/pump fields.
 6. Free G0B1 GPIO for HPROC_nRST on R0/R1; HDR2 I2C2 = PA11/PB14 on R0/R1.
 7. Flash/RAM fit on the L011 (estimate ~10–12 KB / ~1.2 KB).
