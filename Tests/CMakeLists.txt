@@ -141,3 +141,14 @@ add_unity_test(test_boot_decision test_boot_decision.c ../App/services/boot_deci
 add_unity_test(test_bl_proto test_bl_proto.c ../App/services/bl_proto.c)
 add_unity_test(test_bl_session test_bl_session.c ../App/services/bl_session.c ../App/services/bl_proto.c ../App/services/bootcfg.c ../App/services/crc32.c fakes/fake_iflash.c)
 add_unity_test(test_app_confirm test_app_confirm.c ../App/services/app_confirm.c ../App/services/bootcfg.c ../App/services/crc32.c fakes/fake_iflash.c)
+
+# ---- heater coprocessor: portable heater-common + coproc core ----
+set(HC ${CMAKE_CURRENT_SOURCE_DIR}/../heater-common)
+set(HCORE ${CMAKE_CURRENT_SOURCE_DIR}/../heater-coproc/core)
+function(add_heater_test name)
+  add_unity_test(${name} ${ARGN})
+  target_include_directories(${name} PRIVATE ${HC} ${HCORE})
+  target_compile_options(${name} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all)
+  target_link_options(${name} PRIVATE -fsanitize=address,undefined)
+endfunction()
+add_heater_test(test_crc16_modbus test_crc16_modbus.c ${HC}/crc16_modbus.c)
