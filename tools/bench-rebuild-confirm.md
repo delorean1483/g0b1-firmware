@@ -18,7 +18,7 @@ closes the loop.
   **`nBOOT0=1`**, slot A active/COMMITTED v1.1.0 (reg 2 = 10100), agent live.
   → boot hardening / provisioning Step 1b is DONE; do NOT redo it.
 - ST-LINK/V3SET on HDR1. Variscite @ `192.168.0.86`, RS-485 on `/dev/ttyUSB0`,
-  `pyserial` installed, `/tmp/bl_flash.py` present (with `ERASE_TIMEOUT_S = 35.0`).
+  `/tmp/bl_flash.py` present (stdlib-only since 2026-10-07 -- no pyserial needed; pass both slot `.bin`s and it picks the inactive one).
 - Refs: `tools/provision_boot.md`, `docs/remote-update.md`, `cube/build-slots.sh`.
 
 ## Environment (paste once per shell)

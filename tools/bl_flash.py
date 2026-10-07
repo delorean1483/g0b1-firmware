@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """bl_flash.py — reference host flasher for the EF-G0B1R STM32 A/B bootloader.
 
-Modeled on report_slave_id.py's serial/Modbus-RTU idiom (same pyserial
-staged-read style, same inline CRC16). Speaks two protocols over the same
+Modeled on report_slave_id.py's Modbus-RTU idiom (same staged-read style,
+same inline CRC16), but stdlib-only: the serial port is driven with termios
+directly (SerialPort below), so it runs on the Variscite image, which ships
+python3 without pyserial. Speaks two protocols over the same
 RS-485 link, both defined byte-for-byte in App/services/bl_proto.h (that
 header is the frozen source of truth -- this file must match it exactly):
 
@@ -29,14 +31,20 @@ docs/remote-update.md Sec.2 for why that matches App/services/crc32.c's
 convention on-target.
 
 Usage:
-    # validate an image + confirm the link/current version, no device changes:
-    ./bl_flash.py --port /dev/ttyUSB0 --image g0b1-apu-1.1.0-slotB.bin --dry-run
+    # validate the images + confirm the link/current version, no device changes:
+    ./bl_flash.py --port /dev/ttyUSB0 --image g0b1-apu-slotA.bin g0b1-apu-slotB.bin --dry-run
 
     # real update (device must be OFF -- engine not running, see refusal case
-    # below): streams the given .bin into whichever slot the device reports
-    # as inactive via INFO (NOT necessarily the slot letter in the filename --
-    # always trust INFO, see docs/remote-update.md Sec.4):
-    ./bl_flash.py --port /dev/ttyUSB0 --image g0b1-apu-1.1.0-slotB.bin
+    # below; on the Variscite stop gobi-agent first, it owns the port). Pass
+    # both slot .bins: after INFO reports the inactive slot, the image whose
+    # reset vector is linked for that slot is streamed (the filename is never
+    # trusted, see docs/remote-update.md Sec.4). A single --image also works
+    # and is refused before ERASE if it is linked for the other slot.
+    ./bl_flash.py --port /dev/ttyUSB0 --image g0b1-apu-slotA.bin g0b1-apu-slotB.bin
+
+    # If a previous run left the device sitting in the bootloader (it answers
+    # FC 0x03 with exception 0x01), just re-run: the session is resumed from
+    # INFO without the enter-bootloader write.
 
 BENCH-DEFERRED (hardware-only, not exercised by this file or by the host
 test suite -- these are the user's to run on real silicon, see
@@ -52,17 +60,16 @@ docs/remote-update.md Sec.8 and the design's Phase 6 bench plan):
     recovers it; (5) enter-bootloader while the engine is running -> Modbus
     exception 0x04, no reset (see enter_bootloader() below).
 
-Requires: pyserial   ->   pip install pyserial
+Requires: Python 3 stdlib only (POSIX termios -- Linux or macOS).
 """
 import argparse
+import os
+import select
 import sys
+import termios
 import time
 import zlib
 
-try:
-    import serial  # pyserial
-except ImportError:
-    sys.exit("pyserial not installed. Run:  pip install pyserial")
 
 # ── constants (mirror App/services/bl_proto.h, modbus_defs.h, mbp_boot.h) ──
 SLAVE_ADDR = 1
@@ -90,6 +97,7 @@ BL_CHUNK_DEFAULT = 240  # BL_CHUNK_MAX; INFO's reported chunk_max is authoritati
 # its vector table points into the other slot's flash region.
 SLOT_A_BASE = 0x08008000
 SLOT_B_BASE = 0x08040000
+SLOT_SIZE = 0x38000     # 224 KB; INFO's reported slot_size is authoritative
 
 # ERASE erases all 112 pages of a 224 KB slot SYNCHRONOUSLY on-target before
 # it ACKs the FC 0x41 ERASE request (App/services/bl_session.c:erase_target)
@@ -100,7 +108,7 @@ SLOT_B_BASE = 0x08040000
 # much longer timeout regardless of --timeout. ERASE is NOT idempotent-cheap
 # to retry -- every retry re-erases the whole slot from scratch -- so this
 # alone (not a bigger retry count) is the fix for "erase never completes".
-ERASE_TIMEOUT_S = 10.0
+ERASE_TIMEOUT_S = 35.0
 
 
 class BLError(Exception):
@@ -145,15 +153,110 @@ def _strip_and_check_crc(frame: bytes) -> bytes:
     return body
 
 
+class SerialError(Exception):
+    """The serial device could not be opened or configured."""
+
+
+def make_raw(fd: int):
+    """cfmakeraw() by hand -- the Yocto python3 split leaves out the `tty`
+    module, so don't depend on tty.setraw()."""
+    a = termios.tcgetattr(fd)
+    a[0] &= ~(termios.IGNBRK | termios.BRKINT | termios.PARMRK | termios.ISTRIP
+              | termios.INLCR | termios.IGNCR | termios.ICRNL | termios.IXON
+              | termios.IXOFF | termios.IXANY)
+    a[1] &= ~termios.OPOST
+    a[3] &= ~(termios.ECHO | termios.ECHONL | termios.ICANON | termios.ISIG | termios.IEXTEN)
+    a[2] &= ~(termios.CSIZE | termios.PARENB)
+    a[2] |= termios.CS8
+    a[6][termios.VMIN] = 1
+    a[6][termios.VTIME] = 0
+    termios.tcsetattr(fd, termios.TCSANOW, a)
+
+
+class SerialPort:
+    """Minimal stdlib stand-in for the slice of pyserial this tool used:
+    raw 8N1, `timeout` = total seconds a read(n) may wait (pyserial's meaning),
+    read() returns fewer than n bytes on timeout."""
+
+    def __init__(self, path: str, baud: int, timeout: float):
+        speed = getattr(termios, f"B{baud}", None)
+        if speed is None:
+            raise SerialError(f"unsupported baud rate {baud}")
+        try:
+            self.fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        except OSError as e:
+            raise SerialError(f"cannot open {path}: {e}") from e
+        try:
+            make_raw(self.fd)
+            attrs = termios.tcgetattr(self.fd)
+            attrs[2] &= ~(termios.PARENB | termios.CSTOPB | termios.CSIZE)
+            attrs[2] |= termios.CS8 | termios.CLOCAL | termios.CREAD
+            if hasattr(termios, "CRTSCTS"):
+                attrs[2] &= ~termios.CRTSCTS
+            attrs[4] = attrs[5] = speed
+            termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+            termios.tcflush(self.fd, termios.TCIOFLUSH)
+        except termios.error as e:
+            os.close(self.fd)
+            raise SerialError(f"cannot configure {path}: {e}") from e
+        self.timeout = timeout
+
+    def close(self):
+        os.close(self.fd)
+
+    def reset_input_buffer(self):
+        termios.tcflush(self.fd, termios.TCIFLUSH)
+
+    def write(self, data: bytes):
+        view = memoryview(data)
+        while view:
+            try:
+                n = os.write(self.fd, view)
+            except BlockingIOError:
+                select.select([], [self.fd], [], 1.0)
+                continue
+            view = view[n:]
+
+    def flush(self):
+        termios.tcdrain(self.fd)
+
+    def read(self, n: int) -> bytes:
+        out = bytearray()
+        deadline = time.monotonic() + self.timeout
+        while len(out) < n:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            r, _, _ = select.select([self.fd], [], [], left)
+            if not r:
+                break
+            try:
+                chunk = os.read(self.fd, n - len(out))
+            except BlockingIOError:
+                continue
+            if not chunk:
+                break
+            out += chunk
+        return bytes(out)
+
+
+def reset_vector_slot(image: bytes):
+    """'A' / 'B' for the slot the image is linked for (its Thumb reset vector,
+    bytes 4-7), or None if it points into neither slot."""
+    vec = int.from_bytes(image[4:8], "little") & ~1
+    for letter, base in (("A", SLOT_A_BASE), ("B", SLOT_B_BASE)):
+        if base <= vec < base + SLOT_SIZE:
+            return letter
+    return None
+
+
 class Link:
     """RS-485 Modbus RTU link to the EF-G0B1R -- app-mode reg access plus the
     bootloader-mode session protocol, on the same serial port/baud (both run
     at 9600 8N1; the bootloader never changes the line settings)."""
 
     def __init__(self, port: str, baud: int = BAUD, timeout: float = 2.0):
-        self.ser = serial.Serial(port, baud, bytesize=serial.EIGHTBITS,
-                                  parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
-                                  timeout=timeout)
+        self.ser = SerialPort(port, baud, timeout)
 
     def close(self):
         self.ser.close()
@@ -339,27 +442,53 @@ def _retry(fn, max_retries: int, label: str):
 
 
 def run(args) -> int:
-    with open(args.image, "rb") as f:
-        image = f.read()
-    image_crc = zlib.crc32(image) & 0xFFFFFFFF
-    print(f"image: {args.image}  {len(image)} bytes  crc32=0x{image_crc:08X}")
+    images = {}                       # slot letter -> (path, bytes)
+    for path in args.image:
+        with open(path, "rb") as f:
+            data = f.read()
+        slot = reset_vector_slot(data)
+        if slot is None:
+            raise BLError(f"{path}: reset vector 0x{int.from_bytes(data[4:8], 'little'):08X} "
+                          "is in neither app slot -- not a slot .bin (bootloader image?)")
+        if slot in images:
+            raise BLError(f"{path} and {images[slot][0]} are both linked for slot {slot}")
+        images[slot] = (path, data)
+        print(f"image: {path}  slot {slot}  {len(data)} bytes  "
+              f"crc32=0x{zlib.crc32(data) & 0xFFFFFFFF:08X}")
 
     link = Link(args.port, args.baud, timeout=args.timeout)
     try:
-        old_ver = link.read_reg2()
-        print(f"reg2 (current version, encoded) = {old_ver}")
+        in_bootloader = False
+        try:
+            old_ver = link.read_reg2()
+            print(f"reg2 (current version, encoded) = {old_ver}")
+        except BLError as e:
+            # The bootloader answers FC 0x03 with exception 0x01. If INFO then
+            # answers too, an earlier run left it in update mode: resume.
+            if "exception 0x01" not in str(e):
+                raise
+            try:
+                link.bl_info()
+            except BLError:
+                raise e
+            in_bootloader = True
+            old_ver = None
+            print("device is already in the bootloader (left there by an earlier run); "
+                  "resuming the session without enter-bootloader")
 
         if args.dry_run:
-            n_chunks = -(-len(image) // BL_CHUNK_DEFAULT)  # ceil div
-            print(f"--dry-run: link OK, image OK. Would stream ~{n_chunks} chunks "
+            longest = max(len(d) for _, d in images.values())
+            n_chunks = -(-longest // BL_CHUNK_DEFAULT)  # ceil div
+            print(f"--dry-run: link OK, images OK. Would stream ~{n_chunks} chunks "
                   f"of up to {BL_CHUNK_DEFAULT} bytes. Not entering the bootloader; "
                   "no device state changed.")
             return 0
 
-        print("commanding enter-bootloader (reg 35 = 0x00A5)...")
-        link.enter_bootloader()
-        print(f"waiting {args.reset_wait}s for reset + bootloader bring-up...")
-        time.sleep(args.reset_wait)
+        if not in_bootloader:
+            print("commanding enter-bootloader (reg 35 = 0x00A5)...")
+            link.enter_bootloader()
+            print(f"waiting {args.reset_wait}s for reset + bootloader bring-up...")
+            time.sleep(args.reset_wait)
 
         try:
             info = _retry(link.bl_info, args.max_retries, "INFO")
@@ -387,24 +516,22 @@ def run(args) -> int:
             raise BLError(f"unexpected crc_algo {info['crc_algo']} (expected 1 = CRC32/IEEE)")
         if not (0 < info["chunk_max"] <= BL_CHUNK_DEFAULT):
             raise BLError(f"unexpected chunk_max {info['chunk_max']} from device")
+        # Slot pick / wrong-slot guard: the .bin's reset vector (bytes 4-7,
+        # Thumb bit set) points into the flash region it was LINKED for. The
+        # bootloader always writes whichever slot INFO reports inactive, so a
+        # .bin linked for the other slot would erase+stream+verify fine but
+        # boot into garbage. Pick the matching image, or refuse before ERASE.
+        if slot_letter not in images:
+            raise BLError(
+                f"wrong-slot image: the device's inactive slot is {slot_letter}, but no "
+                f"--image is linked for it (got slot {', '.join(sorted(images))}). "
+                f"Pass the slot-{slot_letter} .bin (or both). Nothing was erased; the "
+                "device is waiting in the bootloader -- re-run to resume.")
+        path, image = images[slot_letter]
+        image_crc = zlib.crc32(image) & 0xFFFFFFFF
+        print(f"streaming {path} (linked for slot {slot_letter})")
         if len(image) > info["slot_size"]:
             raise BLError(f"image ({len(image)} B) exceeds slot size ({info['slot_size']} B)")
-
-        # Wrong-slot guard: the .bin's reset vector (bytes 4-7, Thumb bit set)
-        # points into the flash region it was LINKED for. bl_flash always writes
-        # whichever slot INFO reports inactive, so if the image's reset vector
-        # isn't in that slot's range, the given --image is linked for the OTHER
-        # slot -- it would erase+stream+verify fine but boot into garbage (its
-        # vectors point elsewhere). Refuse now, before ERASE.
-        inactive_base = SLOT_A_BASE if info["inactive_slot"] == 0 else SLOT_B_BASE
-        reset_vec = int.from_bytes(image[4:8], "little") & ~1
-        if not (inactive_base <= reset_vec < inactive_base + info["slot_size"]):
-            raise BLError(
-                f"wrong-slot image: reset vector 0x{reset_vec:08X} is not in the "
-                f"inactive slot {slot_letter} range "
-                f"[0x{inactive_base:08X}, 0x{inactive_base + info['slot_size']:08X}). "
-                f"The device is on the other slot -- pass the slot-{slot_letter} .bin "
-                f"(linked for 0x{inactive_base:08X}), not the one you gave.")
         chunk_max = info["chunk_max"]
 
         print(f"ERASE... (synchronous on-target, can take a few seconds; "
@@ -431,6 +558,11 @@ def run(args) -> int:
 
         new_ver = _retry(link.read_reg2, args.max_retries, "post-update reg2 read")
         print(f"reg2 (new version, encoded) = {new_ver}")
+        if old_ver is None:
+            print(f"PASS: device is back in the app reporting {new_ver} (previous "
+                  "version unknown -- the run started in the bootloader). "
+                  f"Slot {slot_letter} is now active (TRIAL until it self-confirms).")
+            return 0
         if new_ver == old_ver:
             print("FAIL: reg2 did not change -- update likely did not take effect.")
             return 1
@@ -446,9 +578,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="Reference RS-485 flasher for the EF-G0B1R A/B bootloader.")
     ap.add_argument("--port", required=True, help="serial device, e.g. /dev/ttyUSB0")
-    ap.add_argument("--image", required=True,
-                     help="the .bin for the INACTIVE slot (INFO says which one -- "
-                          "trust it over the filename, see docs/remote-update.md Sec.4)")
+    ap.add_argument("--image", required=True, nargs="+",
+                     help="slot .bin(s); pass both slot A and slot B builds and the one "
+                          "linked for the slot INFO reports inactive is streamed")
     ap.add_argument("--baud", type=int, default=BAUD)
     ap.add_argument("--timeout", type=float, default=2.0,
                      help="per-frame reply timeout (s) for INFO/DATA/register reads. "
@@ -471,7 +603,7 @@ def main() -> int:
     except FileNotFoundError as e:
         print(f"FAIL: {e}")
         return 2
-    except serial.SerialException as e:
+    except (SerialError, OSError, termios.error) as e:
         print(f"FAIL: serial error: {e}")
         return 2
     except BLError as e:
