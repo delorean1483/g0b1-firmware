@@ -21,8 +21,8 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bl_flash import (BAUD, SLAVE_ADDR, BLError, Link, SerialError,  # noqa: E402
-                      modbus_crc16)
+from bl_flash import (BAUD, SLAVE_ADDR, BLError, BLTimeout, Link,  # noqa: E402
+                      SerialError, _strip_and_check_crc, _with_crc)
 
 WIRE_RED = 75   # firmware reg 76
 REG_COUNT = 4   # red, green, blue, status
@@ -43,11 +43,6 @@ CHANNELS = {"red": 0, "green": 1, "blue": 2}
 RAMP_STEPS = 16  # values 0, 17, ... 255
 
 
-def _with_crc(body: bytes) -> bytes:
-    crc = modbus_crc16(body)
-    return body + bytes([crc & 0xFF, (crc >> 8) & 0xFF])
-
-
 def fc16_frame(slave: int, wire_start: int, values: list) -> bytes:
     n = len(values)
     body = bytes([slave, 0x10, (wire_start >> 8) & 0xFF, wire_start & 0xFF,
@@ -55,11 +50,6 @@ def fc16_frame(slave: int, wire_start: int, values: list) -> bytes:
     for v in values:
         body += bytes([(v >> 8) & 0xFF, v & 0xFF])
     return _with_crc(body)
-
-
-def fc03_frame(slave: int, wire_start: int, count: int) -> bytes:
-    return _with_crc(bytes([slave, 0x03, (wire_start >> 8) & 0xFF, wire_start & 0xFF,
-                            (count >> 8) & 0xFF, count & 0xFF]))
 
 
 def ramp_steps(channel: str) -> list:
@@ -75,19 +65,28 @@ def ramp_steps(channel: str) -> list:
 
 def write_color(link: Link, rgb) -> None:
     """FC16 write of 76-78 in one request (one lamp update)."""
-    link.ser.reset_input_buffer()
-    link.ser.write(fc16_frame(SLAVE_ADDR, WIRE_RED, list(rgb)))
-    link.ser.flush()
-    reply = link.ser.read(8)
-    if len(reply) < 5:
-        raise BLError("timeout waiting for FC 0x10 reply")
-    if reply[1] & 0x80:
-        raise BLError(f"Modbus exception 0x{reply[2]:02X} on FC 0x10 write")
-    if len(reply) < 8:
-        raise BLError("short FC 0x10 reply")
-    crc = modbus_crc16(reply[:-2])
-    if reply[-2:] != bytes([crc & 0xFF, crc >> 8]):
-        raise BLError(f"CRC mismatch in reply: {reply.hex(' ')}")
+    ser = link.ser
+    ser.reset_input_buffer()
+    ser.write(fc16_frame(SLAVE_ADDR, WIRE_RED, list(rgb)))
+    ser.flush()
+    hdr = ser.read(2)
+    if not hdr:
+        raise BLTimeout("no reply to FC 0x10 write")
+    if len(hdr) < 2:
+        raise BLError(f"short/garbled FC 0x10 reply: {hdr.hex(' ')}")
+    if hdr[1] == 0x90:
+        frame = hdr + ser.read(3)
+        if len(frame) < 5:
+            raise BLError(f"short/garbled FC 0x10 reply: {frame.hex(' ')}")
+        body = _strip_and_check_crc(frame)
+        raise BLError(f"Modbus exception 0x{body[2]:02X} on FC 0x10 write")
+    frame = hdr + ser.read(6)
+    if len(frame) < 8:
+        raise BLError(f"short/garbled FC 0x10 reply: {frame.hex(' ')}")
+    body = _strip_and_check_crc(frame)
+    expect = bytes([SLAVE_ADDR, 0x10, WIRE_RED >> 8, WIRE_RED & 0xFF, 0, len(rgb)])
+    if body != expect:
+        raise BLError(f"unexpected FC 0x10 reply: {frame.hex(' ')}")
 
 
 def read_state(link: Link):

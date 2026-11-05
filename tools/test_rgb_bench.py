@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rgb_bench  # noqa: E402
-from bl_flash import modbus_crc16  # noqa: E402
+from bl_flash import BLError, BLTimeout, modbus_crc16  # noqa: E402
 
 
 class FrameTests(unittest.TestCase):
@@ -19,12 +19,6 @@ class FrameTests(unittest.TestCase):
                       0x00, 0xFF, 0x00, 0x00, 0x00, 0x00])
         self.assertEqual(f[:-2], body)
         crc = modbus_crc16(body)
-        self.assertEqual(f[-2:], bytes([crc & 0xFF, crc >> 8]))
-
-    def test_fc03_frame_status_block(self):
-        f = rgb_bench.fc03_frame(1, 75, 4)
-        self.assertEqual(f[:-2], bytes([0x01, 0x03, 0x00, 0x4B, 0x00, 0x04]))
-        crc = modbus_crc16(f[:-2])
         self.assertEqual(f[-2:], bytes([crc & 0xFF, crc >> 8]))
 
     def test_diag_steps(self):
@@ -43,6 +37,88 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(steps[1], (0, 17, 0))
         self.assertEqual(steps[-2], (0, 255, 0))
         self.assertEqual(steps[-1], (0, 0, 0))
+
+
+def crc(body: bytes) -> bytes:
+    c = modbus_crc16(body)
+    return body + bytes([c & 0xFF, c >> 8])
+
+
+class FakeSer:
+    def __init__(self, reply: bytes):
+        self.reply = bytearray(reply)
+        self.written = b""
+
+    def reset_input_buffer(self):
+        pass
+
+    def write(self, data):
+        self.written += data
+
+    def flush(self):
+        pass
+
+    def read(self, n):
+        out, self.reply = bytes(self.reply[:n]), self.reply[n:]
+        return out
+
+
+class FakeLink:
+    def __init__(self, reply: bytes):
+        self.ser = FakeSer(reply)
+
+
+GOOD = crc(bytes([1, 0x10, 0x00, 0x4B, 0x00, 0x03]))
+
+
+class WriteColorTests(unittest.TestCase):
+    def run_write(self, reply):
+        link = FakeLink(reply)
+        rgb_bench.write_color(link, (255, 128, 0))
+        return link
+
+    def test_happy_path_bytes_written(self):
+        link = self.run_write(GOOD)
+        self.assertEqual(link.ser.written, crc(bytes(
+            [1, 0x10, 0, 0x4B, 0, 3, 6, 0, 255, 0, 128, 0, 0])))
+
+    def test_no_reply(self):
+        with self.assertRaisesRegex(BLTimeout, "no reply"):
+            self.run_write(b"")
+
+    def test_short_reply(self):
+        with self.assertRaisesRegex(BLError, "short/garbled"):
+            self.run_write(GOOD[:4])
+        with self.assertRaisesRegex(BLError, "short/garbled"):
+            self.run_write(GOOD[:1])
+
+    def test_exception_reply(self):
+        with self.assertRaisesRegex(BLError, "exception 0x03"):
+            self.run_write(crc(bytes([1, 0x90, 0x03])))
+
+    def test_exception_bad_crc(self):
+        bad = bytearray(crc(bytes([1, 0x90, 0x03])))
+        bad[-1] ^= 0xFF
+        with self.assertRaisesRegex(BLError, "CRC mismatch"):
+            self.run_write(bytes(bad))
+
+    def test_short_exception(self):
+        with self.assertRaisesRegex(BLError, "short/garbled"):
+            self.run_write(bytes([1, 0x90, 0x03]))
+
+    def test_bad_crc(self):
+        bad = bytearray(GOOD)
+        bad[-1] ^= 0xFF
+        with self.assertRaisesRegex(BLError, "CRC mismatch"):
+            self.run_write(bytes(bad))
+
+    def test_wrong_slave_fc_start_quantity(self):
+        for body in (bytes([2, 0x10, 0, 0x4B, 0, 3]),
+                     bytes([1, 0x06, 0, 0x4B, 0, 3]),
+                     bytes([1, 0x10, 0, 0x4C, 0, 3]),
+                     bytes([1, 0x10, 0, 0x4B, 0, 2])):
+            with self.assertRaisesRegex(BLError, "unexpected FC 0x10 reply"):
+                self.run_write(crc(body))
 
 
 if __name__ == "__main__":
