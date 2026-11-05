@@ -156,3 +156,4 @@ add_heater_test(test_htr_regs test_htr_regs.c ${HCORE}/htr_regs.c ${HCORE}/htr_f
 add_heater_test(test_heater test_heater.c ../App/services/heater.c fakes/fake_coproc_bus.c)
 add_heater_test(test_mbp_heater test_mbp_heater.c ../App/services/mbp_heater.c ../App/services/heater.c ../App/services/mb_regmodel.c fakes/fake_coproc_bus.c)
 add_heater_test(test_heater_e2e test_heater_e2e.c ../App/services/heater.c ${HCORE}/htr_regs.c ${HCORE}/htr_fsm.c ${HCORE}/htr_iface.c fakes/fake_htr_driver.c fakes/fake_htr_gpio.c fakes/fake_htr_uart.c)
+add_heater_test(test_is31fl3293 test_is31fl3293.c ../App/services/is31fl3293.c fakes/fake_is31.c)
