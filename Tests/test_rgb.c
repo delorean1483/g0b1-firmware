@@ -108,6 +108,13 @@ static void test_absent_chip_backs_off(void)
     }
 }
 
+static unsigned count_reg(uint8_t reg)
+{
+    unsigned n = 0;
+    for (unsigned i = 0; i < f.nlog; i++) if (f.log[i].reg == reg) n++;
+    return n;
+}
+
 static void test_apply_failure_reinit_reapplies(void)
 {
     uint8_t a[3];
@@ -120,10 +127,74 @@ static void test_apply_failure_reinit_reapplies(void)
     TEST_ASSERT_BITS_LOW(RGB_ST_APPLY_OK, rgb_get_status());
     TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT, rgb_get_status());
     f.fail = false;
-    rgb_process(30); rgb_process(40);
+    unsigned a0 = f.attempts, resets = count_reg(0x3F);
+    rgb_process(519);                       /* retry is at 20 + 500 */
+    TEST_ASSERT_EQUAL_UINT(a0, f.attempts);
+    rgb_process(520);                       /* one call: re-init and apply */
+    TEST_ASSERT_EQUAL_UINT(resets + 1, count_reg(0x3F));
     rgb_get_applied(a);
     TEST_ASSERT_EQUAL_UINT8(40, a[0]); TEST_ASSERT_EQUAL_UINT8(50, a[1]); TEST_ASSERT_EQUAL_UINT8(60, a[2]);
     TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT | RGB_ST_APPLY_OK, rgb_get_status());
+    TEST_ASSERT_BITS_LOW(RGB_ST_PENDING, rgb_get_status());
+}
+
+static void test_apply_failure_backs_off(void)
+{
+    static const uint32_t want[] = {510, 1510, 3510, 7510};   /* gaps 500, 1000, 2000 */
+    unsigned seen = 0;
+    boot();
+    f.fail_pwm = true;                      /* init keeps succeeding, PWM write keeps failing */
+    rgb_set_logical(1, 2, 3);
+    for (uint32_t t = 10; t <= 7600; t += 10) {
+        unsigned n = f.attempts;
+        rgb_process(t);
+        if (f.attempts != n) {
+            if (t == 10) continue;          /* the first, immediate failure */
+            TEST_ASSERT_TRUE(seen < 4);
+            TEST_ASSERT_EQUAL_UINT32(want[seen], t);
+            seen++;
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT(4, seen);
+    TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT, rgb_get_status());
+}
+
+static void test_backoff_wraps_past_zero(void)
+{
+    rgb_init(&f.api, 0xFFFFFF00u);
+    f.fail = true;
+    rgb_process(0xFFFFFF00u);
+    TEST_ASSERT_EQUAL_UINT(1, f.attempts);
+    rgb_process(0xFFFFFFFFu);               /* a plain >= would retry here */
+    rgb_process(0x000000F3u);               /* deadline is 0x000000F4 */
+    TEST_ASSERT_EQUAL_UINT(1, f.attempts);
+    rgb_process(0x000000F4u);
+    TEST_ASSERT_EQUAL_UINT(2, f.attempts);
+}
+
+static void test_absent_chip_recovers(void)
+{
+    uint8_t a[3];
+    f.fail = true;
+    rgb_set_logical(1, 2, 3);
+    rgb_process(0); rgb_process(500);       /* next retry at 1500, backoff 2000 */
+    f.fail = false;
+    unsigned a0 = f.attempts;
+    rgb_process(1499);
+    TEST_ASSERT_EQUAL_UINT(a0, f.attempts);
+    rgb_process(1500);                      /* init and apply in this one call */
+    TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT | RGB_ST_APPLY_OK, rgb_get_status());
+    TEST_ASSERT_BITS_LOW(RGB_ST_PENDING, rgb_get_status());
+    rgb_get_applied(a);
+    TEST_ASSERT_EQUAL_UINT8(1, a[0]); TEST_ASSERT_EQUAL_UINT8(2, a[1]); TEST_ASSERT_EQUAL_UINT8(3, a[2]);
+    /* backoff is back to the minimum: a later failure retries after 500 ms */
+    f.fail = true;
+    rgb_set_logical(4, 5, 6); rgb_process(1600);   /* apply fails */
+    a0 = f.attempts;
+    rgb_process(2099);
+    TEST_ASSERT_EQUAL_UINT(a0, f.attempts);
+    rgb_process(2100);
+    TEST_ASSERT_EQUAL_UINT(a0 + 1, f.attempts);
 }
 
 int main(void)
@@ -137,5 +208,8 @@ int main(void)
     RUN_TEST(test_idle_does_no_i2c);
     RUN_TEST(test_absent_chip_backs_off);
     RUN_TEST(test_apply_failure_reinit_reapplies);
+    RUN_TEST(test_apply_failure_backs_off);
+    RUN_TEST(test_backoff_wraps_past_zero);
+    RUN_TEST(test_absent_chip_recovers);
     return UNITY_END();
 }

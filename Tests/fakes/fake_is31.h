@@ -11,6 +11,7 @@ typedef struct {
     i2c_backend_t api;
     uint8_t  regs[0x40];
     bool     fail;            /* every transfer returns -1, nothing logged */
+    bool     fail_pwm;        /* writes of non-zero PWM data (0x19) return -1; init's all-zero PWM write succeeds */
     unsigned attempts;        /* every read/write call, failed or not */
     fake_is31_xfer_t log[32]; unsigned nlog;   /* successful writes, in order */
     unsigned pwm_latches;     /* successful writes of 0xC5 to 0x28 */

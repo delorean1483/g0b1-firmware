@@ -15,12 +15,17 @@ static int fi_read(void *ctx, uint8_t reg, uint8_t *buf, uint16_t len)
     for (i = 0; i < len; i++) buf[i] = ((unsigned)reg + i) < FAKE_IS31_REGS ? f->regs[reg + i] : 0xFFu;
     return 0;
 }
+static int pwm_nonzero(const uint8_t *b, uint16_t n)
+{
+    while (n--) if (*b++) return 1;
+    return 0;
+}
 static int fi_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len)
 {
     fake_is31_t *f = (fake_is31_t *)ctx;
     uint16_t i;
     f->attempts++;
-    if (f->fail) return -1;
+    if (f->fail || (f->fail_pwm && reg == 0x19u && pwm_nonzero(buf, len))) return -1;
     if (f->nlog < FAKE_IS31_LOG) {
         fake_is31_xfer_t *x = &f->log[f->nlog];
         x->reg = reg;

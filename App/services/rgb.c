@@ -44,7 +44,6 @@ void rgb_process(uint32_t now)
         if (is31_init(s_bus) == 0) {
             s_inited = true;
             s_status |= RGB_ST_PRESENT;
-            s_backoff = RGB_RETRY_MIN_MS;
             s_pending = true;       /* re-apply the requested color after (re)init */
         } else {
             s_status &= (uint16_t)~RGB_ST_PRESENT;
@@ -58,11 +57,13 @@ void rgb_process(uint32_t now)
         if (is31_set_pwm(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b)) == 0) {
             s_app[0] = r; s_app[1] = g; s_app[2] = b;
             s_status |= RGB_ST_APPLY_OK;
+            s_backoff = RGB_RETRY_MIN_MS;   /* healthy only once an apply works */
             s_pending = false;
         } else {
             s_status &= (uint16_t)~RGB_ST_APPLY_OK;
             s_inited = false;
-            s_retry_at = now;
+            s_retry_at = now + s_backoff;
+            s_backoff = (s_backoff * 2u > RGB_RETRY_MAX_MS) ? RGB_RETRY_MAX_MS : s_backoff * 2u;
         }
     }
 }
