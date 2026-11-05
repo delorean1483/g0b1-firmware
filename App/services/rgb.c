@@ -6,7 +6,13 @@ static const i2c_backend_t *s_bus;
 static uint8_t  s_req[3], s_app[3];
 static bool     s_inited, s_pending;
 static uint16_t s_status;          /* PRESENT | APPLY_OK (PENDING derived) */
-static uint32_t s_retry_at, s_backoff;
+static uint32_t s_retry_at, s_backoff, s_refresh_at;
+
+static void backoff_fail(uint32_t now)
+{
+    s_retry_at = now + s_backoff;
+    s_backoff = (s_backoff * 2u > RGB_RETRY_MAX_MS) ? RGB_RETRY_MAX_MS : s_backoff * 2u;
+}
 
 uint16_t rgb_to12(uint8_t v) { return (uint16_t)(((uint32_t)v * 4095u + 127u) / 255u); }
 
@@ -20,6 +26,7 @@ void rgb_init(const i2c_backend_t *bus, uint32_t now)
     s_status = 0;
     s_retry_at = now;
     s_backoff = RGB_RETRY_MIN_MS;
+    s_refresh_at = now + RGB_REFRESH_MS;
 }
 
 void rgb_set_logical(uint8_t r, uint8_t g, uint8_t b)
@@ -45,10 +52,10 @@ void rgb_process(uint32_t now)
             s_inited = true;
             s_status |= RGB_ST_PRESENT;
             s_pending = true;       /* re-apply the requested color after (re)init */
+            s_refresh_at = now + RGB_REFRESH_MS;
         } else {
             s_status &= (uint16_t)~RGB_ST_PRESENT;
-            s_retry_at = now + s_backoff;
-            s_backoff = (s_backoff * 2u > RGB_RETRY_MAX_MS) ? RGB_RETRY_MAX_MS : s_backoff * 2u;
+            backoff_fail(now);
         }
     }
 
@@ -59,11 +66,23 @@ void rgb_process(uint32_t now)
             s_status |= RGB_ST_APPLY_OK;
             s_backoff = RGB_RETRY_MIN_MS;   /* healthy only once an apply works */
             s_pending = false;
+            s_refresh_at = now + RGB_REFRESH_MS;
         } else {
             s_status &= (uint16_t)~RGB_ST_APPLY_OK;
             s_inited = false;
-            s_retry_at = now + s_backoff;
-            s_backoff = (s_backoff * 2u > RGB_RETRY_MAX_MS) ? RGB_RETRY_MAX_MS : s_backoff * 2u;
+            backoff_fail(now);
+        }
+    }
+
+    /* Idle refresh: re-write config + applied color without a reset, so a chip
+       that lost power and came back dark is restored. */
+    if (s_inited && !s_pending && (int32_t)(now - s_refresh_at) >= 0) {
+        if (is31_restore(s_bus, rgb_to12(s_app[1]), rgb_to12(s_app[0]), rgb_to12(s_app[2])) == 0) {
+            s_refresh_at = now + RGB_REFRESH_MS;
+        } else {
+            s_status &= (uint16_t)~RGB_ST_APPLY_OK;
+            s_inited = false;
+            backoff_fail(now);
         }
     }
 }

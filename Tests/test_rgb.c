@@ -82,13 +82,71 @@ static void test_last_request_wins(void)
     TEST_ASSERT_EQUAL_UINT8(4, a[0]); TEST_ASSERT_EQUAL_UINT8(5, a[1]); TEST_ASSERT_EQUAL_UINT8(6, a[2]);
 }
 
-static void test_idle_does_no_i2c(void)
+static unsigned count_reg(uint8_t reg);
+
+static void test_idle_refreshes_every_10s(void)
+{
+    static const uint8_t want[6] = {0x00, 0x00, 0xFF, 0x0F, 0x00, 0x00}; /* red 255 -> OUT2 */
+    boot();
+    rgb_set_logical(255, 0, 0); rgb_process(10);   /* apply at t=10 */
+    unsigned n = f.attempts;
+    now = 20; run_to(10000);
+    rgb_process(10009);
+    TEST_ASSERT_EQUAL_UINT(n, f.attempts);          /* nothing through t+9999 */
+    f.nlog = 0;
+    rgb_process(10010);
+    TEST_ASSERT_EQUAL_UINT(n + 7, f.attempts);      /* exactly one refresh burst */
+    TEST_ASSERT_EQUAL_UINT(7, f.nlog);
+    TEST_ASSERT_EQUAL_UINT(0, count_reg(0x3F));     /* no reset in the burst */
+    TEST_ASSERT_EQUAL_HEX8(0x19, f.log[4].reg);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, f.log[4].data, 6);
+    TEST_ASSERT_EQUAL_HEX8(0x01, f.log[6].reg);
+    TEST_ASSERT_EQUAL_HEX8(0x75, f.log[6].data[0]);
+    n = f.attempts;
+    now = 10020; run_to(20000);
+    rgb_process(20009);
+    TEST_ASSERT_EQUAL_UINT(n, f.attempts);          /* quiet until the next period */
+    rgb_process(20010);
+    TEST_ASSERT_EQUAL_UINT(n + 7, f.attempts);
+}
+
+static void test_refresh_restores_after_chip_reset(void)
 {
     boot();
-    rgb_set_logical(10, 20, 30); run_to(10);
-    unsigned n = f.attempts;
-    now = 20; run_to(5000);
-    TEST_ASSERT_EQUAL_UINT(n, f.attempts);
+    rgb_set_logical(255, 128, 1); rgb_process(10);
+    memset(f.regs, 0, sizeof(f.regs));              /* chip power-on reset */
+    now = 20; run_to(10000);
+    TEST_ASSERT_EQUAL_HEX8(0x00, f.regs[0x01]);     /* not yet */
+    rgb_process(10010);
+    TEST_ASSERT_EQUAL_HEX8(0x75, f.regs[0x01]);
+    TEST_ASSERT_EQUAL_HEX8(0x08, f.regs[0x19]);     /* green 128 -> OUT1 = 2056 = 0x808 */
+    TEST_ASSERT_EQUAL_HEX8(0x08, f.regs[0x1A]);
+    TEST_ASSERT_EQUAL_HEX8(0xFF, f.regs[0x1B]);     /* red 255 -> OUT2 */
+    TEST_ASSERT_EQUAL_HEX8(0x0F, f.regs[0x1C]);
+    TEST_ASSERT_EQUAL_HEX8(0x10, f.regs[0x1D]);     /* blue 1 -> OUT3 = 16 */
+}
+
+static void test_refresh_failure_reports(void)
+{
+    uint8_t a[3];
+    boot();
+    rgb_set_logical(10, 20, 30); rgb_process(10);
+    now = 20; run_to(10000);
+    f.fail = true;
+    rgb_process(10010);                             /* refresh fails */
+    TEST_ASSERT_BITS_LOW(RGB_ST_APPLY_OK, rgb_get_status());
+    TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT, rgb_get_status());
+    f.fail = false;
+    unsigned n = f.attempts, resets = count_reg(0x3F);
+    rgb_process(10509);
+    TEST_ASSERT_EQUAL_UINT(n, f.attempts);          /* backoff 500 */
+    rgb_process(10510);                             /* re-init and apply */
+    TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT | RGB_ST_APPLY_OK, rgb_get_status());
+    TEST_ASSERT_EQUAL_UINT(resets + 1, count_reg(0x3F));
+    rgb_get_applied(a);
+    TEST_ASSERT_EQUAL_UINT8(10, a[0]); TEST_ASSERT_EQUAL_UINT8(20, a[1]); TEST_ASSERT_EQUAL_UINT8(30, a[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x75, f.regs[0x01]);
+    TEST_ASSERT_EQUAL_HEX8(0x41, f.regs[0x19]);     /* green 20 -> 321 = 0x141 */
 }
 
 static void test_absent_chip_backs_off(void)
@@ -205,7 +263,9 @@ int main(void)
     RUN_TEST(test_green_out1_blue_out3);
     RUN_TEST(test_to12_values);
     RUN_TEST(test_last_request_wins);
-    RUN_TEST(test_idle_does_no_i2c);
+    RUN_TEST(test_idle_refreshes_every_10s);
+    RUN_TEST(test_refresh_restores_after_chip_reset);
+    RUN_TEST(test_refresh_failure_reports);
     RUN_TEST(test_absent_chip_backs_off);
     RUN_TEST(test_apply_failure_reinit_reapplies);
     RUN_TEST(test_apply_failure_backs_off);

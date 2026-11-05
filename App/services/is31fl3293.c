@@ -18,13 +18,13 @@ int is31_init(const i2c_backend_t *bus)
     if (wr1(bus, IS31_REG_CONFIG, IS31_CONFIG_VAL) != 0) return -1;
     if (wr1(bus, IS31_REG_CURRENT, IS31_CURRENT_VAL) != 0) return -1;
     if (wr(bus, IS31_REG_SCALING, scaling, 3U) != 0) return -1;
-    if (wr1(bus, IS31_REG_PWM_UPDATE, IS31_KEY) != 0) return -1;
+    if (wr1(bus, IS31_REG_CL_UPDATE, IS31_KEY) != 0) return -1;
     if (wr(bus, IS31_REG_PWM, pwm0, 6U) != 0) return -1;
-    if (wr1(bus, IS31_REG_LATCH, IS31_KEY) != 0) return -1;
+    if (wr1(bus, IS31_REG_PWM_UPDATE, IS31_KEY) != 0) return -1;
     return wr1(bus, IS31_REG_SHUTDOWN, IS31_NORMAL_ON);
 }
 
-int is31_set_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3)
+static int write_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3)
 {
     uint16_t v[3];
     uint8_t b[6];
@@ -35,8 +35,25 @@ int is31_set_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_
         b[2U * i] = (uint8_t)(v[i] & 0xFFu);
         b[2U * i + 1U] = (uint8_t)(v[i] >> 8);
     }
-    if (wr(bus, IS31_REG_PWM, b, 6U) != 0) return -1;
-    return wr1(bus, IS31_REG_LATCH, IS31_KEY);
+    return wr(bus, IS31_REG_PWM, b, 6U);
+}
+
+int is31_set_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3)
+{
+    if (write_pwm(bus, out1, out2, out3) != 0) return -1;
+    return wr1(bus, IS31_REG_PWM_UPDATE, IS31_KEY);
+}
+
+int is31_restore(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3)
+{
+    static const uint8_t scaling[3] = { IS31_SCALING_FULL, IS31_SCALING_FULL, IS31_SCALING_FULL };
+    if (wr1(bus, IS31_REG_CONFIG, IS31_CONFIG_VAL) != 0) return -1;
+    if (wr1(bus, IS31_REG_CURRENT, IS31_CURRENT_VAL) != 0) return -1;
+    if (wr(bus, IS31_REG_SCALING, scaling, 3U) != 0) return -1;
+    if (wr1(bus, IS31_REG_CL_UPDATE, IS31_KEY) != 0) return -1;
+    if (write_pwm(bus, out1, out2, out3) != 0) return -1;
+    if (wr1(bus, IS31_REG_PWM_UPDATE, IS31_KEY) != 0) return -1;
+    return wr1(bus, IS31_REG_SHUTDOWN, IS31_NORMAL_ON);
 }
 
 int is31_shutdown(const i2c_backend_t *bus)
