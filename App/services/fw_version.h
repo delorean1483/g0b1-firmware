@@ -21,10 +21,11 @@
  * v1.1.5: machine/engine/oil hours are committed to NVM as they tick -- they
  * previously lived only in the RAM shadow and rolled back on any STM32 reset.
  * v1.1.6: heater coprocessor client (I2C 0x64) replaces the WK2132/VEVOR path;
- * Modbus heater regs extended to 53-75. */
+ * Modbus heater regs extended to 53-75.
+ * v1.1.7: external RGB light (IS31FL3293 @0x6C on I2C2) + Modbus regs 76-79. */
 #define G0B1_FW_VERSION_MAJOR 1u
 #define G0B1_FW_VERSION_MINOR 1u
-#define G0B1_FW_VERSION_PATCH 6u
+#define G0B1_FW_VERSION_PATCH 7u
 
 /* single-register encoding: major*10000 + minor*100 + patch  (max 6.55.35) */
 #define G0B1_FW_VERSION_ENC \
