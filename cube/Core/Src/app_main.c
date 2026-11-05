@@ -14,6 +14,7 @@
 #include "drv_bsp_adc.h"  /* Task 8: concrete ADC1+DMA feed for sensors */
 #include "drv_rpm_tim3.h" /* Task 9: concrete TIM3_CH1 tach capture -> rpm_source_t */
 #include "drv_heater_i2c2.h" /* I2C2 backend for the heater coprocessor (0x64) */
+#include "drv_rgb_i2c2.h"    /* I2C2 backend for the IS31FL3293 RGB driver (0x6C) */
 #include "mb_engine.h"       /* portable Modbus RTU engine (App/services) */
 #include "mbp_sys.h"         /* portable system provider (fw-rev/reset regs) */
 #include "mbp_nvm.h"         /* portable NVM Modbus provider (persisted regs) */
@@ -27,7 +28,9 @@
 #include "app_confirm.h"      /* self-confirm active A/B slot when healthy */
 #include "drv_iflash.h"       /* internal-flash backend (bootcfg store) */
 #include "heater.h"          /* heater coprocessor client (App/services) */
-#include "mbp_heater.h"      /* heater Modbus provider (regs 53-74) */
+#include "mbp_heater.h"      /* heater Modbus provider (regs 53-75) */
+#include "rgb.h"             /* external RGB lamp service (App/services) */
+#include "mbp_rgb.h"         /* RGB lamp Modbus provider */
 #include "sensors.h"         /* cabin (enclosure) temp -> heater ambient */
 
 extern IWDG_HandleTypeDef hiwdg;  /* Task 10: CubeMX-generated (MX_IWDG_Init, ~2 s) */
@@ -250,6 +253,7 @@ void app_main(void)
      * as heater_present=0 and never blocks or faults boot. No nRST GPIO is
      * wired yet (spec open item 6), so no reset hook. */
     heater_init(drv_heater_i2c2_backend(), NULL, HAL_GetTick());
+    rgb_init(drv_rgb_i2c2_backend(), HAL_GetTick());
 
     /* Task 8 — sensor conversion service + ADC1 feed. sensors_init sets the
      * per-channel averaging windows (must run before any sample) and the VREF
@@ -277,7 +281,8 @@ void app_main(void)
     mbp_nvm_register();               /* persisted regs (runtime hrs, settings, flags) */
     mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
     mbp_sensors_register(drv_rpm_source()); /* Task 8/9: temp/batt regs 1/3/6/51 + reg 38 live RPM */
-    mbp_heater_register();            /* heater regs 53-74 (command + telemetry) */
+    mbp_heater_register();            /* heater regs 53-75 (command + telemetry) */
+    mbp_rgb_register();               /* RGB lamp regs (command + status) */
 
     /* Task 11 — control application: init the shared apu_ctx, register the six
      * OP_* mode handlers, and bind the control registers (2,4,5,10,17,18,22,23,
@@ -327,6 +332,7 @@ void app_main(void)
         drv_modbus_uart_poll();  /* drain any assembled RTU frame -> engine -> DMA TX */
         heater_set_ambient_f(sensors_get_encl_temp_f()); /* AUTOTERM room temp (enclosure stand-in) */
         heater_process(now);     /* coprocessor client: self-paced at 250 ms */
+        rgb_process(now);        /* RGB lamp client: after heater, never overlaps on I2C2 */
         HAL_IWDG_Refresh(&hiwdg);/* Task 10: kick the watchdog once per superloop pass */
     }
 }
