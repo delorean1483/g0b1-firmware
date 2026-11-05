@@ -4,6 +4,9 @@
 #include "mb_regmodel.h"
 #include "modbus_defs.h"
 #include "fake_is31.h"
+#include "mb_engine.h"
+#include "modbus_crc.h"
+#include <string.h>
 
 static fake_is31_t f;
 
@@ -13,6 +16,7 @@ void setUp(void)
     rgb_init(&f.api, 0U);
     rgb_process(0U);
     mb_reg_reset();
+    mb_engine_init();
     mbp_rgb_register();
 }
 void tearDown(void) {}
@@ -56,6 +60,53 @@ static void test_three_writes_one_update(void)
     TEST_ASSERT_EQUAL_UINT(before + 1U, f.pwm_latches);
 }
 
+static void test_single_channel_write_keeps_others(void)
+{
+    uint8_t q[3];
+    write_rgb(10U, 20U, 30U);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(77U, 99U));
+    rgb_get_requested(q);
+    TEST_ASSERT_EQUAL_UINT8(10U, q[0]);
+    TEST_ASSERT_EQUAL_UINT8(99U, q[1]);
+    TEST_ASSERT_EQUAL_UINT8(30U, q[2]);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(78U, 1U));
+    rgb_get_requested(q);
+    TEST_ASSERT_EQUAL_UINT8(10U, q[0]);
+    TEST_ASSERT_EQUAL_UINT8(99U, q[1]);
+    TEST_ASSERT_EQUAL_UINT8(1U, q[2]);
+}
+
+static void put_crc(uint8_t *b, uint16_t n)
+{
+    uint16_t c = modbus_crc16(b, n);
+    b[n] = (uint8_t)c;
+    b[n + 1U] = (uint8_t)(c >> 8);
+}
+
+/* A real FC16 frame (wire 75..77 = regs 76..78) -> one PWM latch with all three values. */
+static void test_fc16_frame_one_latch(void)
+{
+    uint8_t req[32] = { MB_SLAVE_ADDR, MB_FC_WRITE_MULTIPLE, 0x00, 0x4B, 0x00, 0x03, 0x06,
+                        0x00, 0xFF, 0x00, 0x80, 0x00, 0x01 };   /* r=255 g=128 b=1 */
+    uint8_t resp[MB_MAX_FRAME];
+    uint16_t rl = 0U;
+    uint8_t a[3];
+    unsigned before = f.pwm_latches;
+    put_crc(req, 13U);
+    mb_engine_process(req, 15U, resp, &rl);
+    TEST_ASSERT_EQUAL_UINT8(MB_FC_WRITE_MULTIPLE, resp[1]);
+    TEST_ASSERT_EQUAL_UINT16(8U, rl);
+    rgb_process(10U);
+    TEST_ASSERT_EQUAL_UINT(before + 1U, f.pwm_latches);
+    rgb_get_applied(a);
+    TEST_ASSERT_EQUAL_UINT8(255U, a[0]);
+    TEST_ASSERT_EQUAL_UINT8(128U, a[1]);
+    TEST_ASSERT_EQUAL_UINT8(1U, a[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x08, f.regs[0x19]);   /* green 128 -> OUT1 0x808 */
+    TEST_ASSERT_EQUAL_HEX8(0xFF, f.regs[0x1B]);   /* red 255 -> OUT2 0xFFF */
+    TEST_ASSERT_EQUAL_HEX8(0x10, f.regs[0x1D]);   /* blue 1 -> OUT3 16 */
+}
+
 static void test_out_of_range_rejected(void)
 {
     uint8_t q[3];
@@ -86,6 +137,8 @@ int main(void)
     RUN_TEST(test_write_channels_set_requested);
     RUN_TEST(test_read_returns_applied);
     RUN_TEST(test_three_writes_one_update);
+    RUN_TEST(test_single_channel_write_keeps_others);
+    RUN_TEST(test_fc16_frame_one_latch);
     RUN_TEST(test_out_of_range_rejected);
     RUN_TEST(test_status_read_only);
     RUN_TEST(test_past_max_unbound);
