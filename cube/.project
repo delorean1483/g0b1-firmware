@@ -240,5 +240,20 @@
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_heater.c</locationURI>
 		</link>
+		<link>
+			<name>Core/Src/is31fl3293.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/is31fl3293.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/rgb.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/rgb.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/mbp_rgb.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/App/services/mbp_rgb.c</locationURI>
+		</link>
 	</linkedResources>
 </projectDescription>

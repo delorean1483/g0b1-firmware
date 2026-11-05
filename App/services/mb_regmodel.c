@@ -1,7 +1,7 @@
 #include "mb_regmodel.h"
 
 typedef struct { mb_reg_read_fn rd; mb_reg_write_fn wr; } mb_reg_slot_t;
-static mb_reg_slot_t s_slots[MB_REG_MAX + 1u];   /* index by register number 1..52 */
+static mb_reg_slot_t s_slots[MB_REG_MAX + 1u];   /* index by register number 1..79 */
 
 void mb_reg_reset(void) {
     for (uint16_t r = 0; r <= MB_REG_MAX; r++) { s_slots[r].rd = 0; s_slots[r].wr = 0; }
