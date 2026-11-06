@@ -4,11 +4,10 @@
 #include "drv_rgb_i2c2.h"
 #include "is31fl3293.h"
 #include "drv_i2c2_bus.h"
-#include "bench_i2c2_profile.h"
 #include <stddef.h>
 
 
-#define RGB_I2C_TIMEOUT_MS BENCH_I2C2_TIMEOUT_MS
+#define RGB_I2C_TIMEOUT_MS 20u   /* whole transfer; the 54-byte heater read is ~6-7 ms at 100 kHz */
 
 static int rgb_read(void *ctx, uint8_t reg, uint8_t *buf, uint16_t len)
 {

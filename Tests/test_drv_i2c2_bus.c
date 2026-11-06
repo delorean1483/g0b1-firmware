@@ -4,7 +4,6 @@
 #include "mb_regmodel.h"
 #include "drv_rgb_i2c2.h"
 #include "drv_heater_i2c2.h"
-#include "bench_i2c2_profile.h"
 #include <string.h>
 
 GPIO_TypeDef test_gpioa, test_gpiob;
@@ -26,7 +25,7 @@ void setUp(void)
 {
     memset(&regs, 0, sizeof(regs));
     memset(&hi2c2, 0, sizeof(hi2c2));
-    hi2c2.Instance=&regs; hi2c2.Init.Timing=BENCH_I2C2_TIMING;
+    hi2c2.Instance=&regs; hi2c2.Init.Timing=0x60302730u;
     tick=0; calls=disable_calls=init_calls=resets=pulses=stop_edges=0;
     analog_seen=digital_seen=99;
     scl_release=sda_release=1;
@@ -73,7 +72,7 @@ HAL_StatusTypeDef HAL_I2C_DeInit(I2C_HandleTypeDef *h) { (void)h; return HAL_OK;
 HAL_StatusTypeDef HAL_I2C_Init(I2C_HandleTypeDef *h)
 {
     ++init_calls; gpio_mode=0;
-    TEST_ASSERT_EQUAL_HEX32(BENCH_I2C2_TIMING,h->Init.Timing);
+    TEST_ASSERT_EQUAL_HEX32(0x60302730u,h->Init.Timing);
     return init_fail?HAL_ERROR:HAL_OK;
 }
 HAL_StatusTypeDef HAL_I2CEx_ConfigAnalogFilter(I2C_HandleTypeDef *h,uint32_t v)
@@ -141,10 +140,10 @@ void test_both_clients_use_shared_transport_and_keep_timeout(void)
 {
     uint8_t b[54]={0}; const i2c_backend_t *bus=drv_heater_i2c2_backend();
     TEST_ASSERT_EQUAL(0,bus->read(0,16,b,54)); TEST_ASSERT_EQUAL(0xc8,address_seen);
-    TEST_ASSERT_EQUAL(54,len_seen); TEST_ASSERT_EQUAL(BENCH_I2C2_TIMEOUT_MS,timeout_seen);
+    TEST_ASSERT_EQUAL(54,len_seen); TEST_ASSERT_EQUAL(20,timeout_seen);
     bus=drv_rgb_i2c2_backend(); calls=0; first_result=HAL_TIMEOUT;
     TEST_ASSERT_EQUAL(0,bus->write(0,9,b,6)); TEST_ASSERT_EQUAL(0xd8,address_seen);
-    TEST_ASSERT_EQUAL(9,reg_seen); TEST_ASSERT_EQUAL(6,len_seen); TEST_ASSERT_EQUAL(BENCH_I2C2_TIMEOUT_MS,timeout_seen);
+    TEST_ASSERT_EQUAL(9,reg_seen); TEST_ASSERT_EQUAL(6,len_seen); TEST_ASSERT_EQUAL(20,timeout_seen);
     TEST_ASSERT_EQUAL(2,writes_seen); TEST_ASSERT_EQUAL(1,disable_calls);
 }
 void test_diagnostics_are_read_only(void)
