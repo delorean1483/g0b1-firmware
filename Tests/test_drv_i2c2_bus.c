@@ -1,0 +1,167 @@
+#include "unity.h"
+#include "main.h"
+#include "drv_i2c2_bus.h"
+#include "mb_regmodel.h"
+#include "drv_rgb_i2c2.h"
+#include "drv_heater_i2c2.h"
+#include <string.h>
+
+GPIO_TypeDef test_gpioa, test_gpiob;
+static I2C_TypeDef regs;
+I2C_HandleTypeDef hi2c2;
+static uint32_t tick, analog_seen, digital_seen;
+static int calls, disable_calls, init_calls, resets, pulses, stop_edges;
+static int scl_release, sda_release, scl_external_low, sda_external_low;
+static int release_sda_after, master_holds_scl, gpio_mode, retries_fail;
+static int init_fail, filter_fail;
+static HAL_StatusTypeDef first_result;
+static uint32_t first_error;
+static uint16_t address_seen, len_seen;
+static uint32_t timeout_seen;
+static uint8_t reg_seen;
+static int writes_seen;
+
+void setUp(void)
+{
+    memset(&regs, 0, sizeof(regs));
+    memset(&hi2c2, 0, sizeof(hi2c2));
+    hi2c2.Instance=&regs; hi2c2.Init.Timing=0xF0102527;
+    tick=0; calls=disable_calls=init_calls=resets=pulses=stop_edges=0;
+    analog_seen=digital_seen=99;
+    scl_release=sda_release=1;
+    scl_external_low=sda_external_low=master_holds_scl=gpio_mode=0;
+    release_sda_after=0; retries_fail=init_fail=filter_fail=0;
+    first_result=HAL_OK; first_error=0; writes_seen=0;
+    mb_reg_reset(); drv_i2c2_register_diagnostics();
+}
+void tearDown(void) {}
+uint32_t HAL_GetTick(void) { return tick; }
+void HAL_Delay(uint32_t ms) { tick+=ms; }
+void test_disable(void) { ++disable_calls; master_holds_scl=0; }
+void test_reset(void) { ++resets; regs.CR1=regs.ISR=0; }
+GPIO_PinState HAL_GPIO_ReadPin(GPIO_TypeDef *p, uint16_t pin)
+{
+    (void)pin;
+    return p==GPIOA ? (scl_release&&!scl_external_low&&!master_holds_scl?GPIO_PIN_SET:GPIO_PIN_RESET)
+                   : (sda_release&&!sda_external_low?GPIO_PIN_SET:GPIO_PIN_RESET);
+}
+void HAL_GPIO_WritePin(GPIO_TypeDef *p, uint16_t pin, GPIO_PinState v)
+{
+    (void)pin;
+    if(p==GPIOA) {
+        if(gpio_mode && !scl_release && v==GPIO_PIN_SET) {
+            ++pulses;
+            if(release_sda_after && pulses>=release_sda_after) sda_external_low=0;
+        }
+        scl_release=(v==GPIO_PIN_SET);
+    } else {
+        if(gpio_mode && !sda_release && v==GPIO_PIN_SET && HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_11)) ++stop_edges;
+        /* SDA falling while SCL high would generate an unintended START. */
+        if(gpio_mode && sda_release && v==GPIO_PIN_RESET) TEST_ASSERT_EQUAL(GPIO_PIN_RESET,HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_11));
+        sda_release=(v==GPIO_PIN_SET);
+    }
+}
+void HAL_GPIO_Init(GPIO_TypeDef *p, GPIO_InitTypeDef *g)
+{
+    (void)p;
+    TEST_ASSERT_EQUAL(GPIO_MODE_OUTPUT_OD,g->Mode);
+    TEST_ASSERT_EQUAL(GPIO_NOPULL,g->Pull);
+    gpio_mode=1;
+}
+HAL_StatusTypeDef HAL_I2C_DeInit(I2C_HandleTypeDef *h) { (void)h; return HAL_OK; }
+HAL_StatusTypeDef HAL_I2C_Init(I2C_HandleTypeDef *h)
+{
+    ++init_calls; gpio_mode=0;
+    TEST_ASSERT_EQUAL_HEX32(0xF0102527,h->Init.Timing);
+    return init_fail?HAL_ERROR:HAL_OK;
+}
+HAL_StatusTypeDef HAL_I2CEx_ConfigAnalogFilter(I2C_HandleTypeDef *h,uint32_t v)
+{ (void)h; analog_seen=v; return filter_fail?HAL_ERROR:HAL_OK; }
+HAL_StatusTypeDef HAL_I2CEx_ConfigDigitalFilter(I2C_HandleTypeDef *h,uint32_t v)
+{ (void)h; digital_seen=v; return HAL_OK; }
+uint32_t HAL_I2C_GetError(I2C_HandleTypeDef *h) { return h->ErrorCode; }
+static HAL_StatusTypeDef xfer(I2C_HandleTypeDef *h,uint16_t a,uint16_t r,uint16_t size,uint8_t *b,uint16_t n,uint32_t t)
+{
+    (void)b; TEST_ASSERT_EQUAL(I2C_MEMADD_SIZE_8BIT,size);
+    ++calls; address_seen=a; reg_seen=(uint8_t)r; len_seen=n; timeout_seen=t;
+    h->ErrorCode=first_error;
+    return calls==1?first_result:(retries_fail?HAL_TIMEOUT:HAL_OK);
+}
+HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *h,uint16_t a,uint16_t r,uint16_t s,uint8_t *b,uint16_t n,uint32_t t)
+{ return xfer(h,a,r,s,b,n,t); }
+HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *h,uint16_t a,uint16_t r,uint16_t s,uint8_t *b,uint16_t n,uint32_t t)
+{ ++writes_seen; return xfer(h,a,r,s,b,n,t); }
+static uint16_t diag(uint16_t r) { uint16_t v; TEST_ASSERT_EQUAL(MB_EXC_NONE,mb_reg_read(r,&v)); return v; }
+static int read_one(void) { uint8_t b=0; return drv_i2c2_read(0x64,2,&b,1,20); }
+
+void test_healthy_does_not_recover(void)
+{ TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(1,calls); TEST_ASSERT_EQUAL(0,disable_calls); }
+void test_idle_nack_does_not_touch_shared_bus(void)
+{ first_result=HAL_ERROR; first_error=HAL_I2C_ERROR_AF; TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(0,disable_calls); }
+void test_master_scl_low_is_released_and_retry_succeeds(void)
+{
+    uint16_t before=diag(80);
+    first_result=HAL_TIMEOUT; master_holds_scl=1;
+    TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(2,calls);
+    TEST_ASSERT_EQUAL(1,disable_calls); TEST_ASSERT_EQUAL(1,init_calls); TEST_ASSERT_EQUAL(1,resets);
+    TEST_ASSERT_EQUAL(before+1,diag(80)); TEST_ASSERT_EQUAL(2,diag(83));
+    TEST_ASSERT_EQUAL(1,stop_edges); TEST_ASSERT_EQUAL(0,gpio_mode);
+}
+void test_sda_low_is_clocked_free_and_stop_sent(void)
+{
+    first_result=HAL_TIMEOUT; sda_external_low=1; release_sda_after=3;
+    regs.CR1=I2C_CR1_ANFOFF|(7u<<8);
+    TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(2,calls);
+    TEST_ASSERT_EQUAL(4,pulses); /* Three clear clocks plus STOP's SCL rise. */
+    TEST_ASSERT_EQUAL(1,stop_edges); TEST_ASSERT_EQUAL(1,analog_seen); TEST_ASSERT_EQUAL(7,digital_seen);
+    TEST_ASSERT_EQUAL(1,diag(83));
+}
+void test_nack_with_stuck_bus_does_recover(void)
+{ first_result=HAL_ERROR; first_error=HAL_I2C_ERROR_AF; master_holds_scl=1; TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(1,disable_calls); }
+void test_permanent_scl_low_is_bounded_and_restores_peripheral(void)
+{
+    first_result=HAL_TIMEOUT; scl_external_low=1;
+    TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,calls); TEST_ASSERT_EQUAL(1,init_calls);
+    TEST_ASSERT_LESS_THAN(30,tick); TEST_ASSERT_EQUAL(0,gpio_mode); TEST_ASSERT_TRUE(scl_release&&sda_release);
+}
+void test_permanent_sda_low_gets_only_nine_clocks(void)
+{
+    first_result=HAL_TIMEOUT; sda_external_low=1;
+    TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(10,pulses); /* Nine + STOP. */
+    TEST_ASSERT_EQUAL(1,calls); TEST_ASSERT_LESS_THAN(40,tick); TEST_ASSERT_EQUAL(0,gpio_mode);
+}
+void test_retry_failure_is_not_an_unbounded_recovery_loop(void)
+{ first_result=HAL_TIMEOUT; retries_fail=1; TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(2,calls); TEST_ASSERT_EQUAL(1,disable_calls); }
+void test_init_failure_is_reported_without_retry(void)
+{ first_result=HAL_TIMEOUT; init_fail=1; TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,calls); }
+void test_filter_failure_is_reported_without_retry(void)
+{ first_result=HAL_TIMEOUT; filter_fail=1; TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,calls); }
+void test_both_clients_use_shared_transport_and_keep_timeout(void)
+{
+    uint8_t b[54]={0}; const i2c_backend_t *bus=drv_heater_i2c2_backend();
+    TEST_ASSERT_EQUAL(0,bus->read(0,16,b,54)); TEST_ASSERT_EQUAL(0xc8,address_seen);
+    TEST_ASSERT_EQUAL(54,len_seen); TEST_ASSERT_EQUAL(20,timeout_seen);
+    bus=drv_rgb_i2c2_backend(); calls=0; first_result=HAL_TIMEOUT;
+    TEST_ASSERT_EQUAL(0,bus->write(0,9,b,6)); TEST_ASSERT_EQUAL(0xd8,address_seen);
+    TEST_ASSERT_EQUAL(9,reg_seen); TEST_ASSERT_EQUAL(6,len_seen); TEST_ASSERT_EQUAL(20,timeout_seen);
+    TEST_ASSERT_EQUAL(2,writes_seen); TEST_ASSERT_EQUAL(1,disable_calls);
+}
+void test_diagnostics_are_read_only(void)
+{ TEST_ASSERT_EQUAL(MB_EXC_ILLEGAL_ADDRESS,mb_reg_write(80,1)); TEST_ASSERT_EQUAL(MB_EXC_ILLEGAL_ADDRESS,mb_reg_write(83,1)); }
+int main(void)
+{
+    UNITY_BEGIN();
+    RUN_TEST(test_healthy_does_not_recover);
+    RUN_TEST(test_idle_nack_does_not_touch_shared_bus);
+    RUN_TEST(test_master_scl_low_is_released_and_retry_succeeds);
+    RUN_TEST(test_sda_low_is_clocked_free_and_stop_sent);
+    RUN_TEST(test_nack_with_stuck_bus_does_recover);
+    RUN_TEST(test_permanent_scl_low_is_bounded_and_restores_peripheral);
+    RUN_TEST(test_permanent_sda_low_gets_only_nine_clocks);
+    RUN_TEST(test_retry_failure_is_not_an_unbounded_recovery_loop);
+    RUN_TEST(test_init_failure_is_reported_without_retry);
+    RUN_TEST(test_filter_failure_is_reported_without_retry);
+    RUN_TEST(test_both_clients_use_shared_transport_and_keep_timeout);
+    RUN_TEST(test_diagnostics_are_read_only);
+    return UNITY_END();
+}

@@ -21,6 +21,8 @@ function(add_unity_test name)
 endfunction()
 
 add_unity_test(test_smoke test_smoke.c)
+add_unity_test(test_drv_i2c2_bus test_drv_i2c2_bus.c ../cube/Core/Src/drv_i2c2_bus.c ../cube/Core/Src/drv_rgb_i2c2.c ../cube/Core/Src/drv_heater_i2c2.c ../App/services/mb_regmodel.c)
+target_include_directories(test_drv_i2c2_bus BEFORE PRIVATE fakes/i2c2 ../cube/Core/Inc ../heater-common)
 add_unity_test(test_types test_types.c)
 add_unity_test(test_modbus_crc test_modbus_crc.c ../App/services/modbus_crc.c)
 add_unity_test(test_crc32 test_crc32.c ../App/services/crc32.c)
