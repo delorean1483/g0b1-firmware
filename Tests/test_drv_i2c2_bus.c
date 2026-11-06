@@ -216,9 +216,51 @@ void test_idle_nack_on_retry_does_not_block_other_client(void)
     TEST_ASSERT_EQUAL(0,drv_rgb_i2c2_backend()->read(0,1,&b,1));
     TEST_ASSERT_EQUAL(count+1,calls);
 }
+/* The cooldown only skips the HAL while the bus is known bad (a line held, or
+   the last clear failed). A failed transfer on an idle bus must not block the
+   other client: on the bench that turned every lamp fault into ~1 s of heater
+   transport errors. */
+void test_failed_retry_with_idle_lines_does_not_block_other_client(void)
+{
+    uint8_t b=0;
+    first_result=HAL_TIMEOUT; retries_fail=1;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    TEST_ASSERT_EQUAL(1,diag(80));
+    retries_fail=0;
+    int count=calls;
+    TEST_ASSERT_EQUAL(0,drv_heater_i2c2_backend()->read(0,1,&b,1));
+    TEST_ASSERT_EQUAL(count+1,calls); TEST_ASSERT_EQUAL(1,diag(80));
+}
+void test_fault_during_cooldown_with_idle_lines_does_not_block_next_transfer(void)
+{
+    first_result=HAL_TIMEOUT;
+    TEST_ASSERT_EQUAL(0,read_one());          /* recovered, retry succeeded */
+    retries_fail=1;
+    TEST_ASSERT_EQUAL(-1,read_one());         /* new fault inside the cooldown */
+    TEST_ASSERT_EQUAL(1,diag(80));            /* no second clear */
+    retries_fail=0;
+    int count=calls;
+    TEST_ASSERT_EQUAL(0,read_one());
+    TEST_ASSERT_EQUAL(count+1,calls);
+}
+void test_failed_clear_with_idle_lines_still_blocks_until_cooldown_ends(void)
+{
+    first_result=HAL_TIMEOUT; init_fail=1;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    TEST_ASSERT_EQUAL(1,diag(82));            /* the clear failed */
+    init_fail=0;
+    uint32_t end=tick; int count=calls;
+    tick=end+999u;
+    TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(count,calls);
+    tick=end+1000u;
+    TEST_ASSERT_EQUAL(0,read_one());
+}
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_failed_retry_with_idle_lines_does_not_block_other_client);
+    RUN_TEST(test_fault_during_cooldown_with_idle_lines_does_not_block_next_transfer);
+    RUN_TEST(test_failed_clear_with_idle_lines_still_blocks_until_cooldown_ends);
     RUN_TEST(test_idle_nack_on_retry_does_not_block_other_client);
     RUN_TEST(test_heater_command_is_not_replayed_by_transport);
     RUN_TEST(test_cooldown_wraps_safely);
