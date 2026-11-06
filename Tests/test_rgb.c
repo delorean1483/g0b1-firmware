@@ -140,7 +140,10 @@ static void test_refresh_restores_after_chip_reset(void)
     TEST_ASSERT_EQUAL_HEX8(0x10, f.regs[0x1D]);     /* blue 1 -> OUT3 = 16 */
 }
 
-static void test_refresh_failure_reports(void)
+/* After a failed transfer the chip state is unknown, so the retry rewrites the
+   configuration, but without the 0x3F reset: a reset blanks a lit lamp and
+   re-lighting it from dark is the bench trigger for new bus faults. */
+static void test_refresh_failure_restores_without_reset(void)
 {
     uint8_t a[3];
     boot();
@@ -151,12 +154,13 @@ static void test_refresh_failure_reports(void)
     TEST_ASSERT_BITS_LOW(RGB_ST_APPLY_OK, rgb_get_status());
     TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT, rgb_get_status());
     f.fail = false;
+    memset(f.regs, 0, sizeof(f.regs));              /* the chip may have lost its settings */
     unsigned n = f.attempts, resets = count_reg(0x3F);
     rgb_process(10509);
     TEST_ASSERT_EQUAL_UINT(n, f.attempts);          /* backoff 500 */
-    rgb_process(10510);                             /* re-init and apply */
+    rgb_process(10510);                             /* restore, no reset */
     TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT | RGB_ST_APPLY_OK, rgb_get_status());
-    TEST_ASSERT_EQUAL_UINT(resets + 1, count_reg(0x3F));
+    TEST_ASSERT_EQUAL_UINT(resets, count_reg(0x3F));
     rgb_get_applied(a);
     TEST_ASSERT_EQUAL_UINT8(10, a[0]); TEST_ASSERT_EQUAL_UINT8(20, a[1]); TEST_ASSERT_EQUAL_UINT8(30, a[2]);
     TEST_ASSERT_EQUAL_HEX8(0x75, f.regs[0x01]);
@@ -187,7 +191,7 @@ static unsigned count_reg(uint8_t reg)
     return n;
 }
 
-static void test_apply_failure_reinit_reapplies(void)
+static void test_apply_failure_restores_without_reset(void)
 {
     uint8_t a[3];
     boot();
@@ -199,15 +203,47 @@ static void test_apply_failure_reinit_reapplies(void)
     TEST_ASSERT_BITS_LOW(RGB_ST_APPLY_OK, rgb_get_status());
     TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT, rgb_get_status());
     f.fail = false;
+    memset(f.regs, 0, sizeof(f.regs));      /* the chip may have lost its settings */
     unsigned a0 = f.attempts, resets = count_reg(0x3F);
     rgb_process(519);                       /* retry is at 20 + 500 */
     TEST_ASSERT_EQUAL_UINT(a0, f.attempts);
-    rgb_process(520);                       /* one call: re-init and apply */
-    TEST_ASSERT_EQUAL_UINT(resets + 1, count_reg(0x3F));
+    rgb_process(520);                       /* one call: restore configuration + color */
+    TEST_ASSERT_EQUAL_UINT(resets, count_reg(0x3F));
+    TEST_ASSERT_EQUAL_HEX8(0x75, f.regs[0x01]);     /* normal operation */
+    TEST_ASSERT_EQUAL_HEX8(0x3F, f.regs[0x03]);     /* current */
+    TEST_ASSERT_EQUAL_HEX8(0xFF, f.regs[0x10]);     /* scaling OUT1..3 */
+    TEST_ASSERT_EQUAL_HEX8(0xFF, f.regs[0x12]);
+    TEST_ASSERT_EQUAL_HEX8(0xC5, f.regs[0x27]);     /* current/scaling latched */
+    TEST_ASSERT_EQUAL_HEX8(0x23, f.regs[0x19]);     /* green 50 -> OUT1 = 803 = 0x323 */
+    TEST_ASSERT_EQUAL_HEX8(0x03, f.regs[0x1A]);
     rgb_get_applied(a);
     TEST_ASSERT_EQUAL_UINT8(40, a[0]); TEST_ASSERT_EQUAL_UINT8(50, a[1]); TEST_ASSERT_EQUAL_UINT8(60, a[2]);
     TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT | RGB_ST_APPLY_OK, rgb_get_status());
     TEST_ASSERT_BITS_LOW(RGB_ST_PENDING, rgb_get_status());
+}
+
+/* A chip that keeps failing may really have reset or vanished: after three
+   consecutive failures the next attempt re-initializes it with the reset. */
+static void test_three_failures_reinit_with_reset(void)
+{
+    uint8_t a[3];
+    boot();
+    rgb_set_logical(10, 20, 30); rgb_process(10);
+    unsigned resets = count_reg(0x3F);
+    f.fail_pwm = true;                      /* config writes succeed, PWM fails */
+    rgb_set_logical(40, 50, 60); rgb_process(20);   /* failure 1, retry at 520 */
+    rgb_process(520);                       /* failure 2: restore attempt, retry at 1520 */
+    rgb_process(1520);                      /* failure 3: re-init due at 3520 */
+    TEST_ASSERT_EQUAL_UINT(resets, count_reg(0x3F));   /* no reset while retrying */
+    TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT, rgb_get_status());
+    f.fail_pwm = false;
+    rgb_process(3519);
+    TEST_ASSERT_EQUAL_UINT(resets, count_reg(0x3F));
+    rgb_process(3520);                      /* re-init with reset, then apply */
+    TEST_ASSERT_EQUAL_UINT(resets + 1, count_reg(0x3F));
+    rgb_get_applied(a);
+    TEST_ASSERT_EQUAL_UINT8(40, a[0]); TEST_ASSERT_EQUAL_UINT8(50, a[1]); TEST_ASSERT_EQUAL_UINT8(60, a[2]);
+    TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT | RGB_ST_APPLY_OK, rgb_get_status());
 }
 
 static void test_apply_failure_backs_off(void)
@@ -280,9 +316,10 @@ int main(void)
     RUN_TEST(test_apply_writes_only_pwm_and_latch);
     RUN_TEST(test_idle_refreshes_every_10s);
     RUN_TEST(test_refresh_restores_after_chip_reset);
-    RUN_TEST(test_refresh_failure_reports);
+    RUN_TEST(test_refresh_failure_restores_without_reset);
     RUN_TEST(test_absent_chip_backs_off);
-    RUN_TEST(test_apply_failure_reinit_reapplies);
+    RUN_TEST(test_apply_failure_restores_without_reset);
+    RUN_TEST(test_three_failures_reinit_with_reset);
     RUN_TEST(test_apply_failure_backs_off);
     RUN_TEST(test_backoff_wraps_past_zero);
     RUN_TEST(test_absent_chip_recovers);
