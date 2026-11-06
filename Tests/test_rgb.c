@@ -84,17 +84,42 @@ static void test_last_request_wins(void)
 
 static unsigned count_reg(uint8_t reg);
 
-static void test_idle_refreshes_every_10s(void)
+/* A chip that lost its configuration (power glitch, SDB dip) still ACKs, so a
+   PWM-only apply would be "applied" while the lamp stays wrong until the idle
+   refresh. Every apply must re-write the whole configuration, without a reset. */
+static void test_apply_restores_config_lost_since_last_apply(void)
+{
+    uint8_t a[3];
+    boot();
+    rgb_set_logical(10, 20, 30); rgb_process(10);
+    memset(f.regs, 0, sizeof(f.regs));              /* chip lost its configuration */
+    unsigned resets = count_reg(0x3F);
+    rgb_set_logical(40, 50, 60); rgb_process(20);    /* well before any idle refresh */
+    TEST_ASSERT_EQUAL_HEX8(0x75, f.regs[0x01]);     /* normal operation */
+    TEST_ASSERT_EQUAL_HEX8(0x3F, f.regs[0x03]);     /* current */
+    TEST_ASSERT_EQUAL_HEX8(0xFF, f.regs[0x10]);     /* scaling OUT1..3 */
+    TEST_ASSERT_EQUAL_HEX8(0xFF, f.regs[0x11]);
+    TEST_ASSERT_EQUAL_HEX8(0xFF, f.regs[0x12]);
+    TEST_ASSERT_EQUAL_HEX8(0xC5, f.regs[0x27]);     /* current/scaling latched */
+    TEST_ASSERT_EQUAL_HEX8(0x23, f.regs[0x19]);     /* green 50 -> OUT1 = 803 = 0x323 */
+    TEST_ASSERT_EQUAL_HEX8(0x03, f.regs[0x1A]);
+    TEST_ASSERT_EQUAL_HEX8(0xC5, f.regs[0x28]);     /* PWM latched */
+    TEST_ASSERT_EQUAL_UINT(resets, count_reg(0x3F));/* no reset: a lit lamp must not blink */
+    rgb_get_applied(a);
+    TEST_ASSERT_EQUAL_UINT8(40, a[0]); TEST_ASSERT_EQUAL_UINT8(50, a[1]); TEST_ASSERT_EQUAL_UINT8(60, a[2]);
+}
+
+static void test_idle_refreshes_every_1s(void)
 {
     static const uint8_t want[6] = {0x00, 0x00, 0xFF, 0x0F, 0x00, 0x00}; /* red 255 -> OUT2 */
     boot();
     rgb_set_logical(255, 0, 0); rgb_process(10);   /* apply at t=10 */
     unsigned n = f.attempts;
-    now = 20; run_to(10000);
-    rgb_process(10009);
-    TEST_ASSERT_EQUAL_UINT(n, f.attempts);          /* nothing through t+9999 */
+    now = 20; run_to(1000);
+    rgb_process(1009);
+    TEST_ASSERT_EQUAL_UINT(n, f.attempts);          /* nothing through t+999 */
     f.nlog = 0;
-    rgb_process(10010);
+    rgb_process(1010);
     TEST_ASSERT_EQUAL_UINT(n + 7, f.attempts);      /* exactly one refresh burst */
     TEST_ASSERT_EQUAL_UINT(7, f.nlog);
     TEST_ASSERT_EQUAL_UINT(0, count_reg(0x3F));     /* no reset in the burst */
@@ -103,10 +128,10 @@ static void test_idle_refreshes_every_10s(void)
     TEST_ASSERT_EQUAL_HEX8(0x01, f.log[6].reg);
     TEST_ASSERT_EQUAL_HEX8(0x75, f.log[6].data[0]);
     n = f.attempts;
-    now = 10020; run_to(20000);
-    rgb_process(20009);
+    now = 1020; run_to(2000);
+    rgb_process(2009);
     TEST_ASSERT_EQUAL_UINT(n, f.attempts);          /* quiet until the next period */
-    rgb_process(20010);
+    rgb_process(2010);
     TEST_ASSERT_EQUAL_UINT(n + 7, f.attempts);
 }
 
@@ -115,9 +140,9 @@ static void test_refresh_restores_after_chip_reset(void)
     boot();
     rgb_set_logical(255, 128, 1); rgb_process(10);
     memset(f.regs, 0, sizeof(f.regs));              /* chip power-on reset */
-    now = 20; run_to(10000);
+    now = 20; run_to(1000);
     TEST_ASSERT_EQUAL_HEX8(0x00, f.regs[0x01]);     /* not yet */
-    rgb_process(10010);
+    rgb_process(1010);
     TEST_ASSERT_EQUAL_HEX8(0x75, f.regs[0x01]);
     TEST_ASSERT_EQUAL_HEX8(0x08, f.regs[0x19]);     /* green 128 -> OUT1 = 2056 = 0x808 */
     TEST_ASSERT_EQUAL_HEX8(0x08, f.regs[0x1A]);
@@ -131,16 +156,16 @@ static void test_refresh_failure_reports(void)
     uint8_t a[3];
     boot();
     rgb_set_logical(10, 20, 30); rgb_process(10);
-    now = 20; run_to(10000);
+    now = 20; run_to(1000);
     f.fail = true;
-    rgb_process(10010);                             /* refresh fails */
+    rgb_process(1010);                              /* refresh fails */
     TEST_ASSERT_BITS_LOW(RGB_ST_APPLY_OK, rgb_get_status());
     TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT, rgb_get_status());
     f.fail = false;
     unsigned n = f.attempts, resets = count_reg(0x3F);
-    rgb_process(10509);
+    rgb_process(1509);
     TEST_ASSERT_EQUAL_UINT(n, f.attempts);          /* backoff 500 */
-    rgb_process(10510);                             /* re-init and apply */
+    rgb_process(1510);                              /* re-init and apply */
     TEST_ASSERT_BITS_HIGH(RGB_ST_PRESENT | RGB_ST_APPLY_OK, rgb_get_status());
     TEST_ASSERT_EQUAL_UINT(resets + 1, count_reg(0x3F));
     rgb_get_applied(a);
@@ -263,7 +288,8 @@ int main(void)
     RUN_TEST(test_green_out1_blue_out3);
     RUN_TEST(test_to12_values);
     RUN_TEST(test_last_request_wins);
-    RUN_TEST(test_idle_refreshes_every_10s);
+    RUN_TEST(test_apply_restores_config_lost_since_last_apply);
+    RUN_TEST(test_idle_refreshes_every_1s);
     RUN_TEST(test_refresh_restores_after_chip_reset);
     RUN_TEST(test_refresh_failure_reports);
     RUN_TEST(test_absent_chip_backs_off);

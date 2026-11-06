@@ -16,7 +16,8 @@ Wire address = firmware register − 1 (so 75–78 on the wire). Slave 1, 9600 8
 
 - FC16 write of 76–78 (wire 75–77) applies all three channels in one lamp update.
 - A value above 255 returns illegal-value. In an FC16 with a bad later value, the earlier channels are stored and applied on the next pass. FC06 single-register writes apply channel by channel.
-- Idle refresh: every 10 s with nothing pending the firmware rewrites the chip configuration and the applied color (no reset, no flicker). A chip that lost power and came back dark is restored within 10 s. If that refresh fails, bit 1 clears and the firmware retries with backoff (0.5 s up to 8 s).
+- Every apply writes the full chip configuration (shutdown/normal, current, scaling, both latches) plus the PWM values, with no reset and no flicker. A chip that lost its settings still ACKs, so a PWM-only write would read back as applied while the lamp stayed wrong.
+- Idle refresh: every 1 s with nothing pending the firmware rewrites the same configuration and the applied color. A chip that lost power or was shut down (SDB) and came back dark or in the wrong state is restored within 1 s. If that refresh fails, bit 1 clears and the firmware retries with backoff (0.5 s up to 8 s).
 - Each I2C transfer has a 10 ms HAL timeout, but a failing call can take about 25-35 ms in total (HAL BUSY/STOPF waits), so budget for that per failed attempt, not 10 ms.
 
 ## Wiring (G0B1 R0, breakout on ST1)
