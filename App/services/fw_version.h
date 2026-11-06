@@ -29,7 +29,10 @@
  * v1.1.92: full lamp configuration per apply and 1 s idle refresh.
  * v1.1.93: 1 s shared recovery cooldown, no automatic heater COMMAND replay;
  *          matched 50 kHz / 20 ms bench profile.
- * v1.1.94: same changes at 100 kHz / 10 ms for the comparison trial. */
+ * v1.1.94: same changes at 100 kHz / 10 ms for the comparison trial.
+ * v1.1.95: PWM-only applies, 10 s refresh, non-resetting retries, 8 s cap;
+ *          high-line transfers
+ *          allowed during recovery cooldown, at 100 kHz / 10 ms. */
 #define G0B1_FW_VERSION_MAJOR 1u
 #define G0B1_FW_VERSION_MINOR 1u
 #define G0B1_FW_VERSION_PATCH BENCH_I2C2_VERSION_PATCH

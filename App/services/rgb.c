@@ -4,7 +4,7 @@
 
 static const i2c_backend_t *s_bus;
 static uint8_t  s_req[3], s_app[3];
-static bool     s_inited, s_pending;
+static bool     s_inited, s_pending, s_startup, s_restore;
 static uint16_t s_status;          /* PRESENT | APPLY_OK (PENDING derived) */
 static uint32_t s_retry_at, s_backoff, s_refresh_at;
 
@@ -22,6 +22,8 @@ void rgb_init(const i2c_backend_t *bus, uint32_t now)
     s_req[0] = s_req[1] = s_req[2] = 0;
     s_app[0] = s_app[1] = s_app[2] = 0;
     s_inited = false;
+    s_startup = true;
+    s_restore = false;
     s_pending = false;
     s_status = 0;
     s_retry_at = now;
@@ -48,10 +50,16 @@ void rgb_process(uint32_t now)
     if (s_bus == 0) return;
 
     if (!s_inited && (int32_t)(now - s_retry_at) >= 0) {
-        if (is31_init(s_bus) == 0) {
-            s_inited = true;
-            s_status |= RGB_ST_PRESENT;
-            s_pending = true;       /* re-apply the requested color after (re)init */
+        /* Only cold startup attempts a destructive reset. A transport error,
+           including a bus-cooldown rejection, says nothing about chip state. */
+        bool cold = s_startup;
+        s_startup = false;
+        if (!cold || is31_init(s_bus) == 0) {
+            s_inited = true;       /* permits the non-resetting restore below */
+            s_restore = !cold;     /* startup already configured the chip */
+            if (!cold) s_status &= (uint16_t)~RGB_ST_PRESENT;
+            else s_status |= RGB_ST_PRESENT;
+            s_pending = true;
             s_refresh_at = now + RGB_REFRESH_MS;
         } else {
             s_status &= (uint16_t)~RGB_ST_PRESENT;
@@ -61,17 +69,22 @@ void rgb_process(uint32_t now)
 
     if (s_inited && s_pending) {
         uint8_t r = s_req[0], g = s_req[1], b = s_req[2];
-        /* Full configuration, not just PWM: a chip that lost its settings still
-           ACKs, so a PWM-only write would read back "applied" while it stays off. */
-        if (is31_restore(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b)) == 0) {
+        /* Normal color changes only touch PWM. After a failed transfer, restore
+           configuration once without resetting or blanking a lit lamp. */
+        int rc = s_restore
+            ? is31_restore(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b))
+            : is31_set_pwm(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b));
+        if (rc == 0) {
             s_app[0] = r; s_app[1] = g; s_app[2] = b;
-            s_status |= RGB_ST_APPLY_OK;
+            s_status |= RGB_ST_PRESENT | RGB_ST_APPLY_OK;
             s_backoff = RGB_RETRY_MIN_MS;   /* healthy only once an apply works */
             s_pending = false;
+            s_restore = false;
             s_refresh_at = now + RGB_REFRESH_MS;
         } else {
             s_status &= (uint16_t)~RGB_ST_APPLY_OK;
             s_inited = false;
+            s_pending = true;
             backoff_fail(now);
         }
     }
@@ -84,6 +97,7 @@ void rgb_process(uint32_t now)
         } else {
             s_status &= (uint16_t)~RGB_ST_APPLY_OK;
             s_inited = false;
+            s_pending = true;
             backoff_fail(now);
         }
     }

@@ -12,12 +12,13 @@ Wire address = firmware register − 1 (so 75–78 on the wire). Slave 1, 9600 8
 | 76 | `led_red` | RW | 0–255. Write = requested, read = applied |
 | 77 | `led_green` | RW | 0–255, same |
 | 78 | `led_blue` | RW | 0–255, same |
-| 79 | `led_status` | RO | bit 0 present (chip found and initialized; stays set after an apply failure until a re-init fails), bit 1 last apply OK, bit 2 pending |
+| 79 | `led_status` | RO | bit 0 present (last configuration succeeded; retained after first apply failure, cleared if retry fails), bit 1 last apply OK, bit 2 pending |
 
 - FC16 write of 76–78 (wire 75–77) applies all three channels in one lamp update.
 - A value above 255 returns illegal-value. In an FC16 with a bad later value, the earlier channels are stored and applied on the next pass. FC06 single-register writes apply channel by channel.
-- Every apply writes the full chip configuration (shutdown/normal, current, scaling, both latches) plus the PWM values, with no reset and no flicker. A chip that lost its settings still ACKs, so a PWM-only write would read back as applied while the lamp stayed wrong.
-- Idle refresh: every 1 s with nothing pending the firmware rewrites the same configuration and the applied color. A chip that lost power or was shut down (SDB) and came back dark or in the wrong state is normally restored at the next 1 s refresh (plus transfer/scheduling time). An ongoing hardware shutdown or repeated communication failure can prevent restoration. If that refresh fails, bit 1 clears and the firmware retries with backoff (0.5 s up to 1 s).
+- In 1.1.95, normal color applies write only PWM and its latch (two transfers). A chip that lost configuration but still ACKs may report applied before its actual output is restored by the idle refresh; this is an intentional traffic reduction pending hardware repair.
+- Idle refresh: every 10 s with nothing pending, rewrite configuration and the applied color without reset. On apply/refresh failure, retry full configuration and the latest requested color without reset or an intermediate zero-PWM write. Retry intervals grow 0.5, 1, 2, 4, 8 seconds, capped at 8 seconds; requests during backoff update the desired color without bypassing the deadline. Only the first startup attempt uses the destructive initializer, even if that attempt fails. A returning chip can therefore wait up to 8 seconds for retry, or up to 10 seconds for idle refresh if it keeps ACKing despite lost configuration. Ongoing shutdown or communication faults can prevent restoration.
+- The shared bus recovery remains limited to one clear per second. During cooldown, held lines fail immediately; high lines permit one bounded HAL attempt without another recovery. Heater COMMAND writes remain non-replayable. 1.1.95 uses 100 kHz / 10 ms.
 - In the 1.1.92 bench build, each I2C transfer has a 20 ms HAL timeout at 50 kHz, but a failing call can take about 25-35 ms in total (HAL BUSY/STOPF waits), so budget for that per failed attempt, not just the configured timeout.
 
 ## Wiring (G0B1 R0, breakout on ST1)
@@ -55,7 +56,7 @@ Each step prints the applied color and the status bits read back from 76–79.
 4. Persistence (needs the Plan 2 Cortex build, which saves and restores the color; with today's agent the saved color does not come back, and that is not a firmware failure): with that agent running, reset the G0B1, power cycle, unplug RS-485. The saved color comes back each time.
    Without the Plan 2 agent, check only that after a G0B1 reset the lamp is dark with bits 0 and 1 set, then a new `set` lights it.
 5. Rapid writes while the heater coprocessor is polled: no new heater transport errors. A `set` loop runs at only about 2 Hz, so it is not a rapid-write test. Do this step by dragging on the Cortex color page (needs the Plan 2 Cortex build).
-6. Chip power glitch: unplug and replug the breakout (or its 3.3 V) while a color is set. The lamp is restored within about 1 s by the idle refresh once communication is healthy.
+6. Chip power glitch: unplug and replug the breakout (or its 3.3 V) while a color is set. In 1.1.95, recovery can wait for the 10 s idle refresh or an outstanding retry with up to 8 s backoff. This is a separate hardware test, not part of the steady-color/off trials.
 
 ## Limitations
 

@@ -216,9 +216,55 @@ void test_idle_nack_on_retry_does_not_block_other_client(void)
     TEST_ASSERT_EQUAL(0,drv_rgb_i2c2_backend()->read(0,1,&b,1));
     TEST_ASSERT_EQUAL(count+1,calls);
 }
+
+void test_high_lines_after_failed_clear_allow_other_client(void)
+{
+    uint8_t b=0;
+    first_result=HAL_TIMEOUT; scl_external_low=1;
+    TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,diag(80));
+    scl_external_low=0;
+    int count=calls;
+    TEST_ASSERT_EQUAL(0,drv_rgb_i2c2_backend()->read(0,1,&b,1));
+    TEST_ASSERT_EQUAL(count+1,calls); TEST_ASSERT_EQUAL(1,diag(80));
+}
+void test_high_lines_after_retry_failure_allow_other_client(void)
+{
+    uint8_t b=0;
+    first_result=HAL_TIMEOUT; retries_fail=1;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    retries_fail=0;
+    int count=calls;
+    TEST_ASSERT_EQUAL(0,drv_rgb_i2c2_backend()->read(0,1,&b,1));
+    TEST_ASSERT_EQUAL(count+1,calls); TEST_ASSERT_EQUAL(1,diag(80));
+}
+void test_high_line_timeout_during_cooldown_attempts_once_no_clear(void)
+{
+    first_result=HAL_TIMEOUT; retries_fail=1;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    int count=calls;
+    for (int i=0;i<3;i++) {
+        TEST_ASSERT_EQUAL(-1,read_one());
+        TEST_ASSERT_EQUAL(count+i+1,calls);
+        TEST_ASSERT_EQUAL(1,diag(80));
+    }
+}
+void test_sda_held_during_cooldown_skips_both_clients(void)
+{
+    uint8_t b=0;
+    first_result=HAL_TIMEOUT;
+    TEST_ASSERT_EQUAL(0,read_one());
+    sda_external_low=1; int count=calls;
+    TEST_ASSERT_EQUAL(-1,drv_rgb_i2c2_backend()->read(0,1,&b,1));
+    TEST_ASSERT_EQUAL(-1,drv_heater_i2c2_backend()->read(0,1,&b,1));
+    TEST_ASSERT_EQUAL(count,calls); TEST_ASSERT_EQUAL(1,diag(80));
+}
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_high_lines_after_failed_clear_allow_other_client);
+    RUN_TEST(test_high_lines_after_retry_failure_allow_other_client);
+    RUN_TEST(test_high_line_timeout_during_cooldown_attempts_once_no_clear);
+    RUN_TEST(test_sda_held_during_cooldown_skips_both_clients);
     RUN_TEST(test_idle_nack_on_retry_does_not_block_other_client);
     RUN_TEST(test_heater_command_is_not_replayed_by_transport);
     RUN_TEST(test_cooldown_wraps_safely);
