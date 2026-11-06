@@ -16,8 +16,10 @@ Wire address = firmware register − 1 (so 75–78 on the wire). Slave 1, 9600 8
 
 - FC16 write of 76–78 (wire 75–77) applies all three channels in one lamp update.
 - A value above 255 returns illegal-value. In an FC16 with a bad later value, the earlier channels are stored and applied on the next pass. FC06 single-register writes apply channel by channel.
-- Idle refresh: every 10 s with nothing pending the firmware rewrites the chip configuration and the applied color (no reset, no flicker). A chip that lost power and came back dark is restored within 10 s. If that refresh fails, bit 1 clears and the firmware retries with backoff (0.5 s up to 8 s).
-- Each I2C transfer has a 10 ms HAL timeout, but a failing call can take about 25-35 ms in total (HAL BUSY/STOPF waits), so budget for that per failed attempt, not 10 ms.
+- An apply writes only the PWM registers and the PWM latch. Do not rewrite the configuration on every apply: on the 2026-11-05 bench, configuration rewrites while the lamp was lit faulted the shared I2C2 bus about once per four rewrites (1 s refresh: +17 bus clears per lit minute, +1 per dark minute), while PWM-only applies were benign (4 clears in 1,372 lit writes).
+- Idle refresh: every 10 s with nothing pending the firmware rewrites the chip configuration and the applied color (no reset, no flicker). A chip that lost power and came back dark is restored within 10 s.
+- After a failed apply or refresh, bit 1 clears and the firmware retries with backoff (0.5 s up to 8 s). Each retry rewrites the configuration plus the requested color **without** the 0x3F reset, because a reset blanks a lit lamp, and re-lighting it from dark faulted the bus on the bench. Only after 3 consecutive failures does the next attempt re-initialize the chip with the reset.
+- Each I2C transfer has a 20 ms HAL timeout (100 kHz), but a failing call can take about 25-45 ms in total (HAL BUSY/STOPF waits), plus a bus clear and one retry when the bus is stuck (see `docs/i2c2-recovery.md`), so budget for that per failed attempt, not 20 ms.
 
 ## Wiring (G0B1 R0, breakout on ST1)
 
@@ -65,3 +67,7 @@ Each step prints the applied color and the status bits read back from 76–79.
 - Tested on G0B1 R0 with the breakout on ST1 (PC3 = VCC_EN powers 3P3_VCC).
 - On R1, PC3 is LEDS_OFF, which only switches the G0B1's own on-board LEDs and is unrelated to the lamp.
 - G0B1 R2 will carry the breakout circuitry on board. Only the I²C backend (`cube/Core/Src/drv_rgb_i2c2.c`) and board init (`app_main.c`) should change.
+
+### Bench shutdown caveat
+
+The IS31FL3293 Rev. B datasheet says an SDB-low hardware shutdown retains registers; its rising edge resets only the I2C module. A power-on or software reset clears registers. These are distinct faults. The reported floating Q2 gate must be verified/reworked separately; firmware cannot hold SDB high while Q2 pulls it low. A blue lamp is not a programmed fallback.

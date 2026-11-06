@@ -131,8 +131,11 @@ void heater_process(uint32_t now)
         s_type_pending = 0U;
     }
     if (s_cmd_pending != 0U) {
-        if (s_bus->write(s_bus->ctx, HTR_R_COMMAND, &s_cmd_pending, 1U) != 0) { xport_fail(now); goto lost_check; }
+        /* Consume before attempting: a timeout does not prove non-delivery.
+         * A command must not be replayed by the next service poll either. */
+        uint8_t command = s_cmd_pending;
         s_cmd_pending = 0U;
+        if (s_bus->write(s_bus->ctx, HTR_R_COMMAND, &command, 1U) != 0) { xport_fail(now); goto lost_check; }
     }
     /* One read covers control readback (0x10..) and the status block. */
     if (s_bus->read(s_bus->ctx, HTR_R_HEATER_TYPE, &m[HTR_R_HEATER_TYPE],

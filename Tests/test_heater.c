@@ -143,7 +143,23 @@ void test_command_forwarded_once_and_result_read_back(void){
     TEST_ASSERT_FALSE(heater_send_command(0));
     TEST_ASSERT_FALSE(heater_send_command(6));
 }
+
+void test_ambiguous_command_delivery_is_not_replayed_on_later_poll(void) {
+    run_to(1500);
+    c.fail_command_after_accept=true;
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_CLEAR_FAULT));
+    run_to(1800);
+    TEST_ASSERT_EQUAL_UINT(1,c.command_writes);
+    TEST_ASSERT_EQUAL_UINT8(HTR_CMD_CLEAR_FAULT,c.regs[HTR_R_COMMAND]);
+    c.regs[HTR_R_COMMAND]=0;
+    c.fail_command_after_accept=false;
+    run_to(5000);
+    TEST_ASSERT_EQUAL_UINT(1,c.command_writes);
+    TEST_ASSERT_EQUAL_UINT8(0,c.regs[HTR_R_COMMAND]);
+    TEST_ASSERT_TRUE(tel().transport_errors>0);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_ambiguous_command_delivery_is_not_replayed_on_later_poll);
     RUN_TEST(test_fault_latches_request_off);
     RUN_TEST(test_command_forwarded_once_and_result_read_back);
 

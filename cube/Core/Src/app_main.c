@@ -1,4 +1,5 @@
 #include "app_main.h"
+#include "drv_i2c2_bus.h"
 #include "main.h"       /* CubeMX-generated HAL: HAL_GetTick() (SysTick 1 ms base) */
 #include "sched.h"      /* portable M5 cooperative scheduler (App/services) */
 #include "bsp_io.h"      /* portable relay/discrete-input service (App/services) */
@@ -252,6 +253,7 @@ void app_main(void)
      * heater_init only stashes the backend; an absent coprocessor is reported
      * as heater_present=0 and never blocks or faults boot. No nRST GPIO is
      * wired yet (spec open item 6), so no reset hook. */
+    drv_i2c2_init();
     heater_init(drv_heater_i2c2_backend(), NULL, HAL_GetTick());
     rgb_init(drv_rgb_i2c2_backend(), HAL_GetTick());
 
@@ -283,6 +285,7 @@ void app_main(void)
     mbp_sensors_register(drv_rpm_source()); /* Task 8/9: temp/batt regs 1/3/6/51 + reg 38 live RPM */
     mbp_heater_register();            /* heater regs 53-75 (command + telemetry) */
     mbp_rgb_register();               /* RGB lamp regs (command + status) */
+    drv_i2c2_register_diagnostics();   /* Read-only recovery counters, 80-83 */
 
     /* Task 11 — control application: init the shared apu_ctx, register the six
      * OP_* mode handlers, and bind the control registers (2,4,5,10,17,18,22,23,
