@@ -29,9 +29,9 @@ typedef enum {
 #define MB_F_QTY_LO    5u
 #define MB_HEADER_SIZE 6u
 
-/* Register model. Registers are 1..79; wire range check is (start+count) <= 80. */
-#define MB_REG_MAX     79u
-#define MB_REG_LIMIT   80u
+/* Registers 80-83 are read-only I2C2 recovery diagnostics. */
+#define MB_REG_MAX     83u
+#define MB_REG_LIMIT   84u
 
 /* Diagnostics (FC 0x08) sub-functions. */
 #define MB_DIAG_RETURN_QUERY   0x00u

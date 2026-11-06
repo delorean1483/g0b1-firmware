@@ -127,7 +127,7 @@ static void test_status_read_only(void)
 static void test_past_max_unbound(void)
 {
     uint16_t v;
-    TEST_ASSERT_EQUAL_UINT(79U, MB_REG_MAX);
+    TEST_ASSERT_EQUAL_UINT(83U, MB_REG_MAX); /* I2C2 diagnostics extend the map. */
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_read(MB_REG_MAX + 1U, &v));
 }
 
