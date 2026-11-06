@@ -6,7 +6,7 @@ import sys
 import time
 
 sys.path.insert(0, '/data/bench')
-from bl_flash import Link
+from bl_flash import Link, BLError, SerialError
 from rgb_bench import read_state, write_color
 
 ap = argparse.ArgumentParser()
@@ -37,7 +37,16 @@ def telemetry():
 
 if agent_state() != 'inactive':
     raise RuntimeError('gobi-agent must remain inactive')
-link = Link('/dev/ecofleet-rs485')
+
+class ReadRetryLink(Link):
+    def read_holding(self, wire_start, count):
+        for attempt in range(1,4):
+            try:
+                return super().read_holding(wire_start,count)
+            except (BLError,SerialError) as exc:
+                emit('serial_read_retry',wire_start=wire_start,count=count,attempt=attempt,message=str(exc))
+                if attempt==3:raise
+link = ReadRetryLink('/dev/ecofleet-rs485')
 start = time.monotonic()
 count = bad = 0
 rc = 0
