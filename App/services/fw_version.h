@@ -1,5 +1,6 @@
 #ifndef FW_VERSION_H
 #define FW_VERSION_H
+#include "bench_i2c2_profile.h"
 
 /* gobi APU firmware version -- reg 2 (read-only).
  * v1.0.0: first release with auto-fan + Component Test.
@@ -25,10 +26,13 @@
  * v1.1.7: external RGB light (IS31FL3293 @0x6C on I2C2) + Modbus regs 76-79.
  * v1.1.90: bench test only: I2C2 50 kHz, heater/RGB timeouts 20 ms.
  * v1.1.91: shared I2C2 bus recovery with bounded retry and diagnostics.
- * v1.1.92: full lamp configuration per apply and 1 s idle refresh. */
+ * v1.1.92: full lamp configuration per apply and 1 s idle refresh.
+ * v1.1.93: 1 s shared recovery cooldown, no automatic heater COMMAND replay;
+ *          matched 50 kHz / 20 ms bench profile.
+ * v1.1.94: same changes at 100 kHz / 10 ms for the comparison trial. */
 #define G0B1_FW_VERSION_MAJOR 1u
 #define G0B1_FW_VERSION_MINOR 1u
-#define G0B1_FW_VERSION_PATCH 92u
+#define G0B1_FW_VERSION_PATCH BENCH_I2C2_VERSION_PATCH
 
 /* single-register encoding: major*10000 + minor*100 + patch  (max 6.55.35) */
 #define G0B1_FW_VERSION_ENC \

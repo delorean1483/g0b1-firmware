@@ -8,7 +8,22 @@ extern I2C_HandleTypeDef hi2c2;
 #define SDA_PORT GPIOB
 #define SDA_PIN GPIO_PIN_14
 #define CLOCK_WAIT_MS 5u
+#define RECOVERY_INTERVAL_MS 1000u
 static uint16_t s_attempts, s_cleared, s_failed, s_last_lines;
+static uint32_t s_recovery_at;
+static int s_recovery_seen, s_defer;
+
+void drv_i2c2_init(void)
+{
+    s_attempts = s_cleared = s_failed = s_last_lines = 0;
+    s_recovery_at = 0;
+    s_recovery_seen = s_defer = 0;
+}
+static int cooling_down(void)
+{
+    return s_recovery_seen &&
+        (uint32_t)(HAL_GetTick() - s_recovery_at) < RECOVERY_INTERVAL_MS;
+}
 
 static void increment(uint16_t *v) { if (*v != UINT16_MAX) ++*v; }
 static uint16_t line_levels(void)
@@ -91,29 +106,40 @@ static int recover_bus(void)
     if (clear) increment(&s_cleared); else increment(&s_failed);
     return clear ? 0 : -1;
 }
-static int transfer(int write, uint8_t addr7, uint8_t reg, uint8_t *buf,
+static int transfer(int write, int retry, uint8_t addr7, uint8_t reg, uint8_t *buf,
                     uint16_t len, uint32_t timeout_ms)
 {
     unsigned attempt;
+    /* A failed clear or a still-held line must not pay another HAL timeout
+     * on every heater/RGB poll during the shared recovery cooldown. */
+    if (cooling_down() && (s_defer || line_levels() != 3u)) return -1;
     for (attempt = 0; attempt < 2u; ++attempt) {
         HAL_StatusTypeDef status = write
             ? HAL_I2C_Mem_Write(&hi2c2, (uint16_t)(addr7 << 1), reg,
                                 I2C_MEMADD_SIZE_8BIT, buf, len, timeout_ms)
             : HAL_I2C_Mem_Read(&hi2c2, (uint16_t)(addr7 << 1), reg,
                                I2C_MEMADD_SIZE_8BIT, buf, len, timeout_ms);
-        if (status == HAL_OK) return 0;
-        if (attempt != 0u) return -1;
+        if (status == HAL_OK) { s_defer = 0; return 0; }
         /* Optional absent slaves NACK normally; don't disrupt an idle bus. */
         if (status == HAL_ERROR && HAL_I2C_GetError(&hi2c2) == HAL_I2C_ERROR_AF &&
             line_levels() == 3u && !(hi2c2.Instance->ISR & I2C_ISR_BUSY)) return -1;
-        if (recover_bus() != 0) return -1;
+        if (attempt != 0u) { s_defer = 1; return -1; }
+        if (cooling_down()) { s_defer = 1; return -1; }
+        s_defer = (recover_bus() != 0);
+        s_recovery_seen = 1;
+        s_recovery_at = HAL_GetTick(); /* At least 1 s after this clear ends. */
+        /* An errored write may already have reached the slave. Free the bus
+         * for other clients, but never replay a side-effecting command. */
+        if (s_defer || !retry) return -1;
     }
     return -1;
 }
 int drv_i2c2_read(uint8_t a, uint8_t r, uint8_t *b, uint16_t n, uint32_t t)
-{ return transfer(0, a, r, b, n, t); }
+{ return transfer(0, 1, a, r, b, n, t); }
 int drv_i2c2_write(uint8_t a, uint8_t r, const uint8_t *b, uint16_t n, uint32_t t)
-{ return transfer(1, a, r, (uint8_t *)b, n, t); }
+{ return transfer(1, 1, a, r, (uint8_t *)b, n, t); }
+int drv_i2c2_write_once(uint8_t a, uint8_t r, const uint8_t *b, uint16_t n, uint32_t t)
+{ return transfer(1, 0, a, r, (uint8_t *)b, n, t); }
 static modbus_exc_t read_diagnostic(uint16_t reg, uint16_t *out)
 {
     switch (reg) {

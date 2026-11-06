@@ -4,10 +4,11 @@
 #include "drv_rgb_i2c2.h"
 #include "is31fl3293.h"
 #include "drv_i2c2_bus.h"
+#include "bench_i2c2_profile.h"
 #include <stddef.h>
 
 
-#define RGB_I2C_TIMEOUT_MS 20u
+#define RGB_I2C_TIMEOUT_MS BENCH_I2C2_TIMEOUT_MS
 
 static int rgb_read(void *ctx, uint8_t reg, uint8_t *buf, uint16_t len)
 {

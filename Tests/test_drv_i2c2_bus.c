@@ -4,6 +4,7 @@
 #include "mb_regmodel.h"
 #include "drv_rgb_i2c2.h"
 #include "drv_heater_i2c2.h"
+#include "bench_i2c2_profile.h"
 #include <string.h>
 
 GPIO_TypeDef test_gpioa, test_gpiob;
@@ -25,14 +26,14 @@ void setUp(void)
 {
     memset(&regs, 0, sizeof(regs));
     memset(&hi2c2, 0, sizeof(hi2c2));
-    hi2c2.Instance=&regs; hi2c2.Init.Timing=0xF0102527;
+    hi2c2.Instance=&regs; hi2c2.Init.Timing=BENCH_I2C2_TIMING;
     tick=0; calls=disable_calls=init_calls=resets=pulses=stop_edges=0;
     analog_seen=digital_seen=99;
     scl_release=sda_release=1;
     scl_external_low=sda_external_low=master_holds_scl=gpio_mode=0;
     release_sda_after=0; retries_fail=init_fail=filter_fail=0;
     first_result=HAL_OK; first_error=0; writes_seen=0;
-    mb_reg_reset(); drv_i2c2_register_diagnostics();
+    drv_i2c2_init(); mb_reg_reset(); drv_i2c2_register_diagnostics();
 }
 void tearDown(void) {}
 uint32_t HAL_GetTick(void) { return tick; }
@@ -72,7 +73,7 @@ HAL_StatusTypeDef HAL_I2C_DeInit(I2C_HandleTypeDef *h) { (void)h; return HAL_OK;
 HAL_StatusTypeDef HAL_I2C_Init(I2C_HandleTypeDef *h)
 {
     ++init_calls; gpio_mode=0;
-    TEST_ASSERT_EQUAL_HEX32(0xF0102527,h->Init.Timing);
+    TEST_ASSERT_EQUAL_HEX32(BENCH_I2C2_TIMING,h->Init.Timing);
     return init_fail?HAL_ERROR:HAL_OK;
 }
 HAL_StatusTypeDef HAL_I2CEx_ConfigAnalogFilter(I2C_HandleTypeDef *h,uint32_t v)
@@ -85,7 +86,7 @@ static HAL_StatusTypeDef xfer(I2C_HandleTypeDef *h,uint16_t a,uint16_t r,uint16_
     (void)b; TEST_ASSERT_EQUAL(I2C_MEMADD_SIZE_8BIT,size);
     ++calls; address_seen=a; reg_seen=(uint8_t)r; len_seen=n; timeout_seen=t;
     h->ErrorCode=first_error;
-    return calls==1?first_result:(retries_fail?HAL_TIMEOUT:HAL_OK);
+    return calls==1?first_result:(retries_fail==2?HAL_ERROR:(retries_fail?HAL_TIMEOUT:HAL_OK));
 }
 HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *h,uint16_t a,uint16_t r,uint16_t s,uint8_t *b,uint16_t n,uint32_t t)
 { return xfer(h,a,r,s,b,n,t); }
@@ -140,17 +141,90 @@ void test_both_clients_use_shared_transport_and_keep_timeout(void)
 {
     uint8_t b[54]={0}; const i2c_backend_t *bus=drv_heater_i2c2_backend();
     TEST_ASSERT_EQUAL(0,bus->read(0,16,b,54)); TEST_ASSERT_EQUAL(0xc8,address_seen);
-    TEST_ASSERT_EQUAL(54,len_seen); TEST_ASSERT_EQUAL(20,timeout_seen);
+    TEST_ASSERT_EQUAL(54,len_seen); TEST_ASSERT_EQUAL(BENCH_I2C2_TIMEOUT_MS,timeout_seen);
     bus=drv_rgb_i2c2_backend(); calls=0; first_result=HAL_TIMEOUT;
     TEST_ASSERT_EQUAL(0,bus->write(0,9,b,6)); TEST_ASSERT_EQUAL(0xd8,address_seen);
-    TEST_ASSERT_EQUAL(9,reg_seen); TEST_ASSERT_EQUAL(6,len_seen); TEST_ASSERT_EQUAL(20,timeout_seen);
+    TEST_ASSERT_EQUAL(9,reg_seen); TEST_ASSERT_EQUAL(6,len_seen); TEST_ASSERT_EQUAL(BENCH_I2C2_TIMEOUT_MS,timeout_seen);
     TEST_ASSERT_EQUAL(2,writes_seen); TEST_ASSERT_EQUAL(1,disable_calls);
 }
 void test_diagnostics_are_read_only(void)
 { TEST_ASSERT_EQUAL(MB_EXC_ILLEGAL_ADDRESS,mb_reg_write(80,1)); TEST_ASSERT_EQUAL(MB_EXC_ILLEGAL_ADDRESS,mb_reg_write(83,1)); }
+
+void test_short_cooldown_skips_hal_for_both_clients(void)
+{
+    uint8_t b=0;
+    first_result=HAL_TIMEOUT; scl_external_low=1;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    uint32_t end=tick;
+    int count=calls;
+    tick=end+999u;
+    TEST_ASSERT_EQUAL(-1,drv_rgb_i2c2_backend()->read(0,1,&b,1));
+    TEST_ASSERT_EQUAL(-1,drv_heater_i2c2_backend()->read(0,1,&b,1));
+    TEST_ASSERT_EQUAL(count,calls); TEST_ASSERT_EQUAL(1,diag(80));
+    tick=end+1000u; calls=0;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    TEST_ASSERT_EQUAL(2,diag(80));
+}
+void test_healthy_transfers_continue_during_cooldown(void)
+{
+    first_result=HAL_TIMEOUT;
+    TEST_ASSERT_EQUAL(0,read_one());
+    int count=calls;
+    TEST_ASSERT_EQUAL(0,read_one());
+    TEST_ASSERT_EQUAL(count+1,calls); TEST_ASSERT_EQUAL(1,diag(80));
+}
+void test_new_fault_cannot_clear_twice_during_cooldown(void)
+{
+    first_result=HAL_TIMEOUT;
+    TEST_ASSERT_EQUAL(0,read_one());
+    calls=0; scl_external_low=1;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    TEST_ASSERT_EQUAL(0,calls); TEST_ASSERT_EQUAL(1,diag(80));
+}
+void test_cooldown_wraps_safely(void)
+{
+    tick=UINT32_MAX-100u; first_result=HAL_TIMEOUT; scl_external_low=1;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    uint32_t end=tick;
+    tick=end+999u; int count=calls;
+    TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(count,calls);
+    tick=end+1000u; calls=0;
+    TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(2,diag(80));
+}
+void test_heater_command_is_not_replayed_by_transport(void)
+{
+    uint8_t command=3;
+    first_result=HAL_TIMEOUT;
+    TEST_ASSERT_EQUAL(-1,drv_heater_i2c2_backend()->write(0,0x18,&command,1));
+    TEST_ASSERT_EQUAL(1,writes_seen); TEST_ASSERT_EQUAL(1,diag(80));
+    drv_i2c2_init(); calls=writes_seen=0;
+    /* A future burst spanning COMMAND is equally non-repeatable. */
+    uint8_t burst[2]={0,3};
+    TEST_ASSERT_EQUAL(-1,drv_heater_i2c2_backend()->write(0,0x17,burst,2));
+    TEST_ASSERT_EQUAL(1,writes_seen);
+}
+
+
+void test_idle_nack_on_retry_does_not_block_other_client(void)
+{
+    first_result=HAL_TIMEOUT; first_error=HAL_I2C_ERROR_AF; retries_fail=2;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    TEST_ASSERT_EQUAL(1,diag(80));
+    retries_fail=0;
+    int count=calls;
+    uint8_t b=0;
+    TEST_ASSERT_EQUAL(0,drv_rgb_i2c2_backend()->read(0,1,&b,1));
+    TEST_ASSERT_EQUAL(count+1,calls);
+}
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_idle_nack_on_retry_does_not_block_other_client);
+    RUN_TEST(test_heater_command_is_not_replayed_by_transport);
+    RUN_TEST(test_cooldown_wraps_safely);
+    RUN_TEST(test_new_fault_cannot_clear_twice_during_cooldown);
+    RUN_TEST(test_healthy_transfers_continue_during_cooldown);
+    RUN_TEST(test_short_cooldown_skips_hal_for_both_clients);
     RUN_TEST(test_healthy_does_not_recover);
     RUN_TEST(test_idle_nack_does_not_touch_shared_bus);
     RUN_TEST(test_master_scl_low_is_released_and_retry_succeeds);

@@ -20,6 +20,10 @@ static int fc_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len)
     f->last_write_reg = reg;
     f->last_write_len = len;
     for (i = 0; i < len; i++) if ((reg + i) < FAKE_COPROC_REGS) f->regs[reg + i] = buf[i];
+    if (reg == HTR_R_COMMAND && len != 0U) {
+        f->command_writes++;
+        if (f->fail_command_after_accept) return -1;
+    }
     return 0;
 }
 void fake_coproc_init(fake_coproc_t *f)

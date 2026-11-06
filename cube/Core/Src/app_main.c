@@ -253,6 +253,7 @@ void app_main(void)
      * heater_init only stashes the backend; an absent coprocessor is reported
      * as heater_present=0 and never blocks or faults boot. No nRST GPIO is
      * wired yet (spec open item 6), so no reset hook. */
+    drv_i2c2_init();
     heater_init(drv_heater_i2c2_backend(), NULL, HAL_GetTick());
     rgb_init(drv_rgb_i2c2_backend(), HAL_GetTick());
 
