@@ -61,9 +61,7 @@ void rgb_process(uint32_t now)
 
     if (s_inited && s_pending) {
         uint8_t r = s_req[0], g = s_req[1], b = s_req[2];
-        /* Full configuration, not just PWM: a chip that lost its settings still
-           ACKs, so a PWM-only write would read back "applied" while it stays off. */
-        if (is31_restore(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b)) == 0) {
+        if (is31_set_pwm(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b)) == 0) {
             s_app[0] = r; s_app[1] = g; s_app[2] = b;
             s_status |= RGB_ST_APPLY_OK;
             s_backoff = RGB_RETRY_MIN_MS;   /* healthy only once an apply works */
