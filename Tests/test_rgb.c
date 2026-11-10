@@ -34,6 +34,7 @@ static void test_boot_inits_and_is_off(void)
     rgb_get_applied(a);
     TEST_ASSERT_EQUAL_UINT8(0, a[0]); TEST_ASSERT_EQUAL_UINT8(0, a[1]); TEST_ASSERT_EQUAL_UINT8(0, a[2]);
     TEST_ASSERT_EQUAL_HEX8(0x3F, f.log[0].reg);
+    TEST_ASSERT_EQUAL_HEX8(IS31_SHUTDOWN_OFF, f.regs[IS31_REG_SHUTDOWN]);
 }
 
 static void test_red_maps_to_out2(void)
@@ -90,12 +91,62 @@ static unsigned count_reg(uint8_t reg);
 static void test_apply_writes_only_pwm_and_latch(void)
 {
     boot();
+    rgb_set_logical(1, 2, 3); rgb_process(5);
     unsigned n0 = f.nlog;
     rgb_set_logical(40, 50, 60); rgb_process(10);
     TEST_ASSERT_EQUAL_UINT(n0 + 2, f.nlog);
     TEST_ASSERT_EQUAL_HEX8(0x19, f.log[n0].reg);
     TEST_ASSERT_EQUAL_HEX8(0x28, f.log[n0 + 1].reg);
     TEST_ASSERT_EQUAL_HEX8(0xC5, f.log[n0 + 1].data[0]);
+}
+
+static void test_zero_stays_in_shutdown_after_failures_and_refresh(void)
+{
+    boot();
+    rgb_set_logical(255, 255, 0); rgb_process(10);
+    TEST_ASSERT_EQUAL_HEX8(0x35, f.regs[IS31_REG_SHUTDOWN]);
+    rgb_set_logical(0, 0, 0);
+    f.fail = true;
+    rgb_process(20); rgb_process(520); rgb_process(1520);
+    f.fail = false;
+    f.nlog = 0;
+    rgb_process(3520);
+    TEST_ASSERT_EQUAL_UINT(1, count_reg(IS31_REG_RESET));
+    for (unsigned i = 0; i < f.nlog; ++i)
+        if (f.log[i].reg == IS31_REG_SHUTDOWN)
+            TEST_ASSERT_EQUAL_HEX8(IS31_SHUTDOWN_OFF, f.log[i].data[0]);
+    TEST_ASSERT_BITS_HIGH(RGB_ST_APPLY_OK, rgb_get_status());
+    f.nlog = 0;
+    rgb_process(13520);
+    TEST_ASSERT_EQUAL_UINT(1, f.nlog);
+    TEST_ASSERT_EQUAL_HEX8(IS31_REG_SHUTDOWN, f.log[0].reg);
+    TEST_ASSERT_EQUAL_HEX8(IS31_SHUTDOWN_OFF, f.log[0].data[0]);
+    f.nlog = 0;
+    rgb_set_logical(255, 255, 0); rgb_process(13521);
+    TEST_ASSERT_EQUAL_UINT(7, f.nlog);
+    TEST_ASSERT_EQUAL_HEX8(IS31_REG_PWM_UPDATE, f.log[5].reg);
+    TEST_ASSERT_EQUAL_HEX8(IS31_REG_SHUTDOWN, f.log[6].reg);
+    TEST_ASSERT_EQUAL_HEX8(0x35, f.log[6].data[0]);
+    f.nlog = 0;
+    rgb_set_logical(0, 0, 0); rgb_process(13522);
+    TEST_ASSERT_EQUAL_UINT(1, f.nlog);
+    TEST_ASSERT_EQUAL_HEX8(IS31_REG_SHUTDOWN, f.log[0].reg);
+    TEST_ASSERT_EQUAL_HEX8(IS31_SHUTDOWN_OFF, f.log[0].data[0]);
+}
+
+static void test_lit_color_change_updates_enables_after_latch(void)
+{
+    boot();
+    rgb_set_logical(255, 255, 0); rgb_process(10);
+    TEST_ASSERT_EQUAL_HEX8(0x35, f.regs[IS31_REG_SHUTDOWN]);
+    f.nlog = 0;
+    rgb_set_logical(0, 0, 255); rgb_process(20);
+    TEST_ASSERT_EQUAL_UINT(3, f.nlog);
+    TEST_ASSERT_EQUAL_HEX8(IS31_REG_PWM_UPDATE, f.log[1].reg);
+    TEST_ASSERT_EQUAL_HEX8(IS31_REG_SHUTDOWN, f.log[2].reg);
+    TEST_ASSERT_EQUAL_HEX8(0x45, f.log[2].data[0]);
+    rgb_set_logical(255, 255, 0); rgb_process(30);
+    TEST_ASSERT_EQUAL_HEX8(0x35, f.regs[IS31_REG_SHUTDOWN]);
 }
 
 static void test_idle_refreshes_every_10s(void)
@@ -115,7 +166,7 @@ static void test_idle_refreshes_every_10s(void)
     TEST_ASSERT_EQUAL_HEX8(0x19, f.log[4].reg);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, f.log[4].data, 6);
     TEST_ASSERT_EQUAL_HEX8(0x01, f.log[6].reg);
-    TEST_ASSERT_EQUAL_HEX8(0x75, f.log[6].data[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x25, f.log[6].data[0]);
     n = f.attempts;
     now = 10020; run_to(20000);
     rgb_process(20009);
@@ -305,6 +356,7 @@ static void test_absent_chip_recovers(void)
     TEST_ASSERT_EQUAL_UINT(a0 + 1, f.attempts);
 }
 
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -314,6 +366,8 @@ int main(void)
     RUN_TEST(test_to12_values);
     RUN_TEST(test_last_request_wins);
     RUN_TEST(test_apply_writes_only_pwm_and_latch);
+    RUN_TEST(test_zero_stays_in_shutdown_after_failures_and_refresh);
+    RUN_TEST(test_lit_color_change_updates_enables_after_latch);
     RUN_TEST(test_idle_refreshes_every_10s);
     RUN_TEST(test_refresh_restores_after_chip_reset);
     RUN_TEST(test_refresh_failure_restores_without_reset);

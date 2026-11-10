@@ -9,14 +9,17 @@ extern I2C_HandleTypeDef hi2c2;
 #define SDA_PIN GPIO_PIN_14
 #define CLOCK_WAIT_MS 5u
 #define RECOVERY_INTERVAL_MS 1000u
+#define RECOVERY_FAILURE_THRESHOLD 3u
 static uint16_t s_attempts, s_cleared, s_failed, s_last_lines;
 static uint32_t s_recovery_at;
+static unsigned s_transfer_failures;
 static int s_recovery_seen, s_clear_failed;
 
 void drv_i2c2_init(void)
 {
     s_attempts = s_cleared = s_failed = s_last_lines = 0;
     s_recovery_at = 0;
+    s_transfer_failures = 0;
     s_recovery_seen = s_clear_failed = 0;
 }
 static int cooling_down(void)
@@ -39,6 +42,24 @@ static int wait_scl_high(void)
         HAL_Delay(1);
     }
     return 0;
+}
+static int refresh_idle_lines(void)
+{
+    /* ES0348 F1 filter workaround, adapted to the G0 peripheral reset.
+     * Only generate this START/STOP sequence once both wires are released. */
+    HAL_GPIO_WritePin(SDA_PORT, SDA_PIN, GPIO_PIN_RESET);
+    HAL_Delay(1);
+    if (line_levels() != 1u) return 0;
+    HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_RESET);
+    HAL_Delay(1);
+    if (line_levels() != 0u) return 0;
+    HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_SET);
+    if (wait_scl_high() != 0) return 0;
+    HAL_Delay(1);
+    if (line_levels() != 1u) return 0;
+    HAL_GPIO_WritePin(SDA_PORT, SDA_PIN, GPIO_PIN_SET);
+    HAL_Delay(1);
+    return line_levels() == 3u;
 }
 static int recover_bus(void)
 {
@@ -66,7 +87,9 @@ static int recover_bus(void)
     gpio.Pin = SDA_PIN;
     HAL_GPIO_Init(SDA_PORT, &gpio);
     HAL_Delay(1);
-    if (wait_scl_high() == 0) {
+    if (line_levels() == 3u) {
+        clear = refresh_idle_lines();
+    } else if (wait_scl_high() == 0) {
         unsigned pulses;
         for (pulses = 0; pulses < 9u &&
              HAL_GPIO_ReadPin(SDA_PORT, SDA_PIN) == GPIO_PIN_RESET; ++pulses) {
@@ -121,13 +144,22 @@ static int transfer(int write, int retry, uint8_t addr7, uint8_t reg, uint8_t *b
                                 I2C_MEMADD_SIZE_8BIT, buf, len, timeout_ms)
             : HAL_I2C_Mem_Read(&hi2c2, (uint16_t)(addr7 << 1), reg,
                                I2C_MEMADD_SIZE_8BIT, buf, len, timeout_ms);
-        if (status == HAL_OK) { s_clear_failed = 0; return 0; }
+        if (status == HAL_OK) {
+            s_clear_failed = 0;
+            s_transfer_failures = 0;
+            return 0;
+        }
         /* Optional absent slaves NACK normally; don't disrupt an idle bus. */
         if (status == HAL_ERROR && HAL_I2C_GetError(&hi2c2) == HAL_I2C_ERROR_AF &&
-            line_levels() == 3u && !(hi2c2.Instance->ISR & I2C_ISR_BUSY)) return -1;
-        if (attempt != 0u) return -1;
-        if (cooling_down()) return -1;     /* at most one clear per second */
+            line_levels() == 3u && !(hi2c2.Instance->ISR & I2C_ISR_BUSY)) {
+            s_transfer_failures = 0;
+            return -1;
+        }
+        if (s_transfer_failures < RECOVERY_FAILURE_THRESHOLD) ++s_transfer_failures;
+        if (s_transfer_failures < RECOVERY_FAILURE_THRESHOLD ||
+            attempt != 0u || cooling_down()) return -1;
         s_clear_failed = (recover_bus() != 0);
+        if (!s_clear_failed) s_transfer_failures = 0;
         s_recovery_seen = 1;
         s_recovery_at = HAL_GetTick(); /* At least 1 s after this clear ends. */
         /* An errored write may already have reached the slave. Free the bus

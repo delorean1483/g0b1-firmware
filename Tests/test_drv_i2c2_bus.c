@@ -10,7 +10,7 @@ GPIO_TypeDef test_gpioa, test_gpiob;
 static I2C_TypeDef regs;
 I2C_HandleTypeDef hi2c2;
 static uint32_t tick, analog_seen, digital_seen;
-static int calls, disable_calls, init_calls, resets, pulses, stop_edges;
+static int calls, disable_calls, init_calls, resets, pulses, start_edges, stop_edges;
 static int scl_release, sda_release, scl_external_low, sda_external_low;
 static int release_sda_after, master_holds_scl, gpio_mode, retries_fail;
 static int init_fail, filter_fail;
@@ -26,7 +26,7 @@ void setUp(void)
     memset(&regs, 0, sizeof(regs));
     memset(&hi2c2, 0, sizeof(hi2c2));
     hi2c2.Instance=&regs; hi2c2.Init.Timing=0x60302730u;
-    tick=0; calls=disable_calls=init_calls=resets=pulses=stop_edges=0;
+    tick=0; calls=disable_calls=init_calls=resets=pulses=start_edges=stop_edges=0;
     analog_seen=digital_seen=99;
     scl_release=sda_release=1;
     scl_external_low=sda_external_low=master_holds_scl=gpio_mode=0;
@@ -56,8 +56,7 @@ void HAL_GPIO_WritePin(GPIO_TypeDef *p, uint16_t pin, GPIO_PinState v)
         scl_release=(v==GPIO_PIN_SET);
     } else {
         if(gpio_mode && !sda_release && v==GPIO_PIN_SET && HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_11)) ++stop_edges;
-        /* SDA falling while SCL high would generate an unintended START. */
-        if(gpio_mode && sda_release && v==GPIO_PIN_RESET) TEST_ASSERT_EQUAL(GPIO_PIN_RESET,HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_11));
+        if(gpio_mode && sda_release && v==GPIO_PIN_RESET && HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_11)) ++start_edges;
         sda_release=(v==GPIO_PIN_SET);
     }
 }
@@ -94,6 +93,40 @@ HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *h,uint16_t a,uint16_t r,u
 static uint16_t diag(uint16_t r) { uint16_t v; TEST_ASSERT_EQUAL(MB_EXC_NONE,mb_reg_read(r,&v)); return v; }
 static int read_one(void) { uint8_t b=0; return drv_i2c2_read(0x64,2,&b,1,20); }
 
+
+/* Leave the mock positioned at the failing transfer that triggers recovery. */
+static void prime_recovery(void)
+{
+    TEST_ASSERT_EQUAL(-1,read_one());
+    calls=0;
+    TEST_ASSERT_EQUAL(-1,read_one());
+    TEST_ASSERT_EQUAL(0,diag(80));
+    calls=0;
+}
+
+void test_idle_lines_use_f1_start_stop_after_three_failures(void)
+{
+    first_result=HAL_TIMEOUT;
+    regs.ISR=I2C_ISR_BUSY;
+    prime_recovery();
+    TEST_ASSERT_EQUAL(0,read_one());
+    TEST_ASSERT_EQUAL(1,start_edges);
+    TEST_ASSERT_EQUAL(1,pulses);
+    TEST_ASSERT_EQUAL(1,stop_edges);
+    TEST_ASSERT_EQUAL(1,resets);
+    TEST_ASSERT_EQUAL(3,diag(83));
+}
+
+void test_success_breaks_failure_streak(void)
+{
+    first_result=HAL_TIMEOUT;
+    prime_recovery();
+    first_result=HAL_OK;
+    TEST_ASSERT_EQUAL(0,read_one());
+    first_result=HAL_TIMEOUT;
+    calls=0;
+    prime_recovery();
+}
 void test_healthy_does_not_recover(void)
 { TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(1,calls); TEST_ASSERT_EQUAL(0,disable_calls); }
 void test_idle_nack_does_not_touch_shared_bus(void)
@@ -101,7 +134,7 @@ void test_idle_nack_does_not_touch_shared_bus(void)
 void test_master_scl_low_is_released_and_retry_succeeds(void)
 {
     uint16_t before=diag(80);
-    first_result=HAL_TIMEOUT; master_holds_scl=1;
+    first_result=HAL_TIMEOUT; master_holds_scl=1; prime_recovery();
     TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(2,calls);
     TEST_ASSERT_EQUAL(1,disable_calls); TEST_ASSERT_EQUAL(1,init_calls); TEST_ASSERT_EQUAL(1,resets);
     TEST_ASSERT_EQUAL(before+1,diag(80)); TEST_ASSERT_EQUAL(2,diag(83));
@@ -109,7 +142,7 @@ void test_master_scl_low_is_released_and_retry_succeeds(void)
 }
 void test_sda_low_is_clocked_free_and_stop_sent(void)
 {
-    first_result=HAL_TIMEOUT; sda_external_low=1; release_sda_after=3;
+    first_result=HAL_TIMEOUT; sda_external_low=1; release_sda_after=3; prime_recovery();
     regs.CR1=I2C_CR1_ANFOFF|(7u<<8);
     TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(2,calls);
     TEST_ASSERT_EQUAL(4,pulses); /* Three clear clocks plus STOP's SCL rise. */
@@ -117,31 +150,32 @@ void test_sda_low_is_clocked_free_and_stop_sent(void)
     TEST_ASSERT_EQUAL(1,diag(83));
 }
 void test_nack_with_stuck_bus_does_recover(void)
-{ first_result=HAL_ERROR; first_error=HAL_I2C_ERROR_AF; master_holds_scl=1; TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(1,disable_calls); }
+{ first_result=HAL_ERROR; first_error=HAL_I2C_ERROR_AF; master_holds_scl=1; prime_recovery(); TEST_ASSERT_EQUAL(0,read_one()); TEST_ASSERT_EQUAL(1,disable_calls); }
 void test_permanent_scl_low_is_bounded_and_restores_peripheral(void)
 {
-    first_result=HAL_TIMEOUT; scl_external_low=1;
+    first_result=HAL_TIMEOUT; scl_external_low=1; prime_recovery();
     TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,calls); TEST_ASSERT_EQUAL(1,init_calls);
     TEST_ASSERT_LESS_THAN(30,tick); TEST_ASSERT_EQUAL(0,gpio_mode); TEST_ASSERT_TRUE(scl_release&&sda_release);
 }
 void test_permanent_sda_low_gets_only_nine_clocks(void)
 {
     first_result=HAL_TIMEOUT; sda_external_low=1;
+    prime_recovery();
     TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(10,pulses); /* Nine + STOP. */
     TEST_ASSERT_EQUAL(1,calls); TEST_ASSERT_LESS_THAN(40,tick); TEST_ASSERT_EQUAL(0,gpio_mode);
 }
 void test_retry_failure_is_not_an_unbounded_recovery_loop(void)
-{ first_result=HAL_TIMEOUT; retries_fail=1; TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(2,calls); TEST_ASSERT_EQUAL(1,disable_calls); }
+{ first_result=HAL_TIMEOUT; retries_fail=1; prime_recovery(); TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(2,calls); TEST_ASSERT_EQUAL(1,disable_calls); }
 void test_init_failure_is_reported_without_retry(void)
-{ first_result=HAL_TIMEOUT; init_fail=1; TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,calls); }
+{ first_result=HAL_TIMEOUT; init_fail=1; prime_recovery(); TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,calls); }
 void test_filter_failure_is_reported_without_retry(void)
-{ first_result=HAL_TIMEOUT; filter_fail=1; TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,calls); }
+{ first_result=HAL_TIMEOUT; filter_fail=1; prime_recovery(); TEST_ASSERT_EQUAL(-1,read_one()); TEST_ASSERT_EQUAL(1,calls); }
 void test_both_clients_use_shared_transport_and_keep_timeout(void)
 {
     uint8_t b[54]={0}; const i2c_backend_t *bus=drv_heater_i2c2_backend();
     TEST_ASSERT_EQUAL(0,bus->read(0,16,b,54)); TEST_ASSERT_EQUAL(0xc8,address_seen);
     TEST_ASSERT_EQUAL(54,len_seen); TEST_ASSERT_EQUAL(20,timeout_seen);
-    bus=drv_rgb_i2c2_backend(); calls=0; first_result=HAL_TIMEOUT;
+    bus=drv_rgb_i2c2_backend(); calls=0; first_result=HAL_TIMEOUT; prime_recovery();
     TEST_ASSERT_EQUAL(0,bus->write(0,9,b,6)); TEST_ASSERT_EQUAL(0xd8,address_seen);
     TEST_ASSERT_EQUAL(9,reg_seen); TEST_ASSERT_EQUAL(6,len_seen); TEST_ASSERT_EQUAL(20,timeout_seen);
     TEST_ASSERT_EQUAL(2,writes_seen); TEST_ASSERT_EQUAL(1,disable_calls);
@@ -152,7 +186,7 @@ void test_diagnostics_are_read_only(void)
 void test_short_cooldown_skips_hal_for_both_clients(void)
 {
     uint8_t b=0;
-    first_result=HAL_TIMEOUT; scl_external_low=1;
+    first_result=HAL_TIMEOUT; scl_external_low=1; prime_recovery();
     TEST_ASSERT_EQUAL(-1,read_one());
     uint32_t end=tick;
     int count=calls;
@@ -167,6 +201,7 @@ void test_short_cooldown_skips_hal_for_both_clients(void)
 void test_healthy_transfers_continue_during_cooldown(void)
 {
     first_result=HAL_TIMEOUT;
+    prime_recovery();
     TEST_ASSERT_EQUAL(0,read_one());
     int count=calls;
     TEST_ASSERT_EQUAL(0,read_one());
@@ -175,6 +210,7 @@ void test_healthy_transfers_continue_during_cooldown(void)
 void test_new_fault_cannot_clear_twice_during_cooldown(void)
 {
     first_result=HAL_TIMEOUT;
+    prime_recovery();
     TEST_ASSERT_EQUAL(0,read_one());
     calls=0; scl_external_low=1;
     TEST_ASSERT_EQUAL(-1,read_one());
@@ -182,7 +218,7 @@ void test_new_fault_cannot_clear_twice_during_cooldown(void)
 }
 void test_cooldown_wraps_safely(void)
 {
-    tick=UINT32_MAX-100u; first_result=HAL_TIMEOUT; scl_external_low=1;
+    tick=UINT32_MAX-100u; first_result=HAL_TIMEOUT; scl_external_low=1; prime_recovery();
     TEST_ASSERT_EQUAL(-1,read_one());
     uint32_t end=tick;
     tick=end+999u; int count=calls;
@@ -194,6 +230,7 @@ void test_heater_command_is_not_replayed_by_transport(void)
 {
     uint8_t command=3;
     first_result=HAL_TIMEOUT;
+    prime_recovery();
     TEST_ASSERT_EQUAL(-1,drv_heater_i2c2_backend()->write(0,0x18,&command,1));
     TEST_ASSERT_EQUAL(1,writes_seen); TEST_ASSERT_EQUAL(1,diag(80));
     drv_i2c2_init(); calls=writes_seen=0;
@@ -206,7 +243,7 @@ void test_heater_command_is_not_replayed_by_transport(void)
 
 void test_idle_nack_on_retry_does_not_block_other_client(void)
 {
-    first_result=HAL_TIMEOUT; first_error=HAL_I2C_ERROR_AF; retries_fail=2;
+    first_result=HAL_TIMEOUT; first_error=HAL_I2C_ERROR_AF; retries_fail=2; prime_recovery();
     TEST_ASSERT_EQUAL(-1,read_one());
     TEST_ASSERT_EQUAL(1,diag(80));
     retries_fail=0;
@@ -222,7 +259,7 @@ void test_idle_nack_on_retry_does_not_block_other_client(void)
 void test_failed_retry_with_idle_lines_does_not_block_other_client(void)
 {
     uint8_t b=0;
-    first_result=HAL_TIMEOUT; retries_fail=1;
+    first_result=HAL_TIMEOUT; retries_fail=1; prime_recovery();
     TEST_ASSERT_EQUAL(-1,read_one());
     TEST_ASSERT_EQUAL(1,diag(80));
     retries_fail=0;
@@ -233,6 +270,7 @@ void test_failed_retry_with_idle_lines_does_not_block_other_client(void)
 void test_fault_during_cooldown_with_idle_lines_does_not_block_next_transfer(void)
 {
     first_result=HAL_TIMEOUT;
+    prime_recovery();
     TEST_ASSERT_EQUAL(0,read_one());          /* recovered, retry succeeded */
     retries_fail=1;
     TEST_ASSERT_EQUAL(-1,read_one());         /* new fault inside the cooldown */
@@ -244,7 +282,7 @@ void test_fault_during_cooldown_with_idle_lines_does_not_block_next_transfer(voi
 }
 void test_failed_clear_with_idle_lines_still_blocks_until_cooldown_ends(void)
 {
-    first_result=HAL_TIMEOUT; init_fail=1;
+    first_result=HAL_TIMEOUT; init_fail=1; prime_recovery();
     TEST_ASSERT_EQUAL(-1,read_one());
     TEST_ASSERT_EQUAL(1,diag(82));            /* the clear failed */
     init_fail=0;
@@ -257,6 +295,8 @@ void test_failed_clear_with_idle_lines_still_blocks_until_cooldown_ends(void)
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_idle_lines_use_f1_start_stop_after_three_failures);
+    RUN_TEST(test_success_breaks_failure_streak);
     RUN_TEST(test_failed_retry_with_idle_lines_does_not_block_other_client);
     RUN_TEST(test_fault_during_cooldown_with_idle_lines_does_not_block_next_transfer);
     RUN_TEST(test_failed_clear_with_idle_lines_still_blocks_until_cooldown_ends);

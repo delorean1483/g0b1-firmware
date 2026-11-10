@@ -17,9 +17,9 @@ static void expect_xfer(unsigned i, uint8_t reg, uint8_t len, const uint8_t *dat
 static void test_init_sequence(void)
 {
     static const uint8_t a[] = {0xC5}, b[] = {0x70}, c[] = {0x00}, d[] = {0x3F};
-    static const uint8_t e[] = {0xFF, 0xFF, 0xFF}, g[6] = {0}, h[] = {0x75};
+    static const uint8_t e[] = {0xFF, 0xFF, 0xFF}, g[6] = {0};
     TEST_ASSERT_EQUAL_INT(0, is31_init(&f.api));
-    TEST_ASSERT_EQUAL_UINT(9, f.nlog);
+    TEST_ASSERT_EQUAL_UINT(8, f.nlog);
     expect_xfer(0, 0x3F, 1, a);
     expect_xfer(1, 0x01, 1, b);
     expect_xfer(2, 0x02, 1, c);
@@ -28,7 +28,7 @@ static void test_init_sequence(void)
     expect_xfer(5, 0x27, 1, a);
     expect_xfer(6, 0x19, 6, g);
     expect_xfer(7, 0x28, 1, a);
-    expect_xfer(8, 0x01, 1, h);
+    TEST_ASSERT_EQUAL_HEX8(IS31_SHUTDOWN_OFF, f.regs[IS31_REG_SHUTDOWN]);
 }
 static void test_set_pwm_packs_and_latches_once(void)
 {
@@ -56,7 +56,7 @@ static void test_failure_propagates(void)
 static void test_restore_sequence(void)
 {
     static const uint8_t c0[] = {0x00}, cur[] = {0x3F}, e[] = {0xFF, 0xFF, 0xFF};
-    static const uint8_t k[] = {0xC5}, p[] = {0xBC, 0x0A, 0xFF, 0x0F, 0x00, 0x00}, on[] = {0x75};
+    static const uint8_t k[] = {0xC5}, p[] = {0xBC, 0x0A, 0xFF, 0x0F, 0x00, 0x00}, on[] = {0x35};
     TEST_ASSERT_EQUAL_INT(0, is31_restore(&f.api, 0x0ABC, 4095, 0));
     TEST_ASSERT_EQUAL_UINT(7, f.nlog);
     expect_xfer(0, 0x02, 1, c0);

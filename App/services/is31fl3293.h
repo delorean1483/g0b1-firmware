@@ -18,17 +18,19 @@
 
 #define IS31_KEY            0xC5u
 #define IS31_SHUTDOWN_OFF   0x70u
-#define IS31_NORMAL_ON      0x75u
+#define IS31_NORMAL_400HZ   0x05u
 #define IS31_CONFIG_VAL     0x00u
 #define IS31_CURRENT_VAL    0x3Fu
 #define IS31_SCALING_FULL   0xFFu
 #define IS31_PWM_MAX        4095u
 
-int is31_init(const i2c_backend_t *bus);     /* 0 ok; -1 at the first failed transfer (stops there) */
+int is31_init(const i2c_backend_t *bus);     /* Initializes in shutdown. Stops at the first failed transfer. */
 int is31_set_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3); /* clamps each to 4095 */
+int is31_enable_outputs(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3);
 /* Re-writes configuration and PWM without the reset / shutdown / zero-PWM steps
    of is31_init, so a lit lamp does not flicker. Order: 0x02, 0x03, 0x10, 0x27,
-   PWM at 0x19, 0x28, 0x01. 0 ok; -1 at the first failed transfer. */
+   PWM at 0x19, 0x28, 0x01. All-zero requests write only shutdown.
+   0 ok; -1 at the first failed transfer. */
 int is31_restore(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3);
 int is31_shutdown(const i2c_backend_t *bus); /* 0x01 <- 0x70 */
 #endif

@@ -20,8 +20,7 @@ int is31_init(const i2c_backend_t *bus)
     if (wr(bus, IS31_REG_SCALING, scaling, 3U) != 0) return -1;
     if (wr1(bus, IS31_REG_CL_UPDATE, IS31_KEY) != 0) return -1;
     if (wr(bus, IS31_REG_PWM, pwm0, 6U) != 0) return -1;
-    if (wr1(bus, IS31_REG_PWM_UPDATE, IS31_KEY) != 0) return -1;
-    return wr1(bus, IS31_REG_SHUTDOWN, IS31_NORMAL_ON);
+    return wr1(bus, IS31_REG_PWM_UPDATE, IS31_KEY);
 }
 
 static int write_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3)
@@ -44,16 +43,24 @@ int is31_set_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_
     return wr1(bus, IS31_REG_PWM_UPDATE, IS31_KEY);
 }
 
+int is31_enable_outputs(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3)
+{
+    uint8_t enabled = (out1 ? 0x10u : 0u) | (out2 ? 0x20u : 0u) | (out3 ? 0x40u : 0u);
+    return enabled ? wr1(bus, IS31_REG_SHUTDOWN, IS31_NORMAL_400HZ | enabled)
+                   : is31_shutdown(bus);
+}
+
 int is31_restore(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3)
 {
     static const uint8_t scaling[3] = { IS31_SCALING_FULL, IS31_SCALING_FULL, IS31_SCALING_FULL };
+    if (!(out1 || out2 || out3)) return is31_shutdown(bus);
     if (wr1(bus, IS31_REG_CONFIG, IS31_CONFIG_VAL) != 0) return -1;
     if (wr1(bus, IS31_REG_CURRENT, IS31_CURRENT_VAL) != 0) return -1;
     if (wr(bus, IS31_REG_SCALING, scaling, 3U) != 0) return -1;
     if (wr1(bus, IS31_REG_CL_UPDATE, IS31_KEY) != 0) return -1;
     if (write_pwm(bus, out1, out2, out3) != 0) return -1;
     if (wr1(bus, IS31_REG_PWM_UPDATE, IS31_KEY) != 0) return -1;
-    return wr1(bus, IS31_REG_SHUTDOWN, IS31_NORMAL_ON);
+    return is31_enable_outputs(bus, out1, out2, out3);
 }
 
 int is31_shutdown(const i2c_backend_t *bus)

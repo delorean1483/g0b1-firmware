@@ -67,7 +67,7 @@ void rgb_process(uint32_t now)
             s_inited = true;
             s_status |= RGB_ST_PRESENT;
             s_pending = true;       /* re-apply the requested color after (re)init */
-            s_restore = false;      /* init just wrote the whole configuration */
+            s_restore = true;       /* init leaves the chip in shutdown */
             s_fails = 0;
             s_refresh_at = now + RGB_REFRESH_MS;
         } else {
@@ -76,13 +76,22 @@ void rgb_process(uint32_t now)
         }
     }
 
-    /* Apply a pending color (PWM + latch only), or after a failure wait out the
-       backoff and restore configuration + the requested color. */
+    /* Apply pending requests or retry after backoff. Wake with a full
+       restore, and change output enables only after the new PWM is latched. */
     if (s_inited && (s_pending || s_restore) &&
         (!s_restore || (int32_t)(now - s_retry_at) >= 0)) {
         uint8_t r = s_req[0], g = s_req[1], b = s_req[2];
-        int rc = s_restore ? is31_restore(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b))
-                           : is31_set_pwm(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b));
+        bool was_off = !(s_app[0] || s_app[1] || s_app[2]);
+        int rc;
+        if (!(r || g || b))
+            rc = is31_shutdown(s_bus);
+        else if (s_restore || was_off)
+            rc = is31_restore(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b));
+        else {
+            rc = is31_set_pwm(s_bus, rgb_to12(g), rgb_to12(r), rgb_to12(b));
+            if (rc == 0 && ((!r != !s_app[0]) || (!g != !s_app[1]) || (!b != !s_app[2])))
+                rc = is31_enable_outputs(s_bus, g, r, b);
+        }
         if (rc == 0) {
             s_app[0] = r; s_app[1] = g; s_app[2] = b;
             s_status |= RGB_ST_APPLY_OK;
@@ -96,8 +105,7 @@ void rgb_process(uint32_t now)
         }
     }
 
-    /* Idle refresh: re-write config + applied color without a reset, so a chip
-       that lost power and came back dark is restored. */
+    /* Refresh the lit configuration or reassert shutdown when idle. */
     if (s_inited && !s_pending && !s_restore && (int32_t)(now - s_refresh_at) >= 0) {
         if (is31_restore(s_bus, rgb_to12(s_app[1]), rgb_to12(s_app[0]), rgb_to12(s_app[2])) == 0) {
             s_refresh_at = now + RGB_REFRESH_MS;
