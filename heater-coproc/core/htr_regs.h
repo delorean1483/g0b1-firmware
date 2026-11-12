@@ -18,13 +18,14 @@ typedef struct {
 
 /* Loads persisted settings. Returns the HEATER_TYPE setting to boot with. */
 uint8_t htr_regs_init(const htr_regs_cfg_t *cfg, uint32_t now);
-uint8_t htr_regs_host_timeout_min(void);
+uint8_t htr_regs_host_timeout_s(void);
 
 /* ---- ISR side ---- */
 void    htr_regs_i2c_begin(bool is_read);   /* address match */
 void    htr_regs_i2c_rx(uint8_t byte);      /* master wrote a byte */
 uint8_t htr_regs_i2c_tx(void);              /* master reads a byte */
 void    htr_regs_i2c_end(void);             /* STOP */
+void    htr_regs_i2c_error(void);           /* BERR/ARLO/OVR: drop the open write */
 
 /* ---- superloop side ---- */
 void htr_regs_poll(uint32_t now);
