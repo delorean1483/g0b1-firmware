@@ -321,6 +321,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32g0xx_hal.h"
+#include "i2c_bench_trace.h"
 
 /** @addtogroup STM32G0xx_HAL_Driver
   * @{
@@ -2542,6 +2543,7 @@ HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *hi2c, uint16_t DevAddress
     /* Init tickstart for timeout management*/
     tickstart = HAL_GetTick();
 
+    i2c_bench_stage(hi2c, I2C_TRACE_BUSY);
     if (I2C_WaitOnFlagUntilTimeout(hi2c, I2C_FLAG_BUSY, SET, I2C_TIMEOUT_BUSY, tickstart) != HAL_OK)
     {
       return HAL_ERROR;
@@ -2564,6 +2566,7 @@ HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *hi2c, uint16_t DevAddress
       return HAL_ERROR;
     }
 
+    i2c_bench_stage(hi2c, I2C_TRACE_DATA_TX);
     /* Set NBYTES to write and reload if hi2c->XferCount > MAX_NBYTE_SIZE */
     if (hi2c->XferCount > MAX_NBYTE_SIZE)
     {
@@ -2618,6 +2621,7 @@ HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *hi2c, uint16_t DevAddress
     } while (hi2c->XferCount > 0U);
 
     /* No need to Check TC flag, with AUTOEND mode the stop is automatically generated */
+    i2c_bench_stage(hi2c, I2C_TRACE_WAIT_END);
     /* Wait until STOPF flag is reset */
     if (I2C_WaitOnSTOPFlagUntilTimeout(hi2c, Timeout, tickstart) != HAL_OK)
     {
@@ -2679,6 +2683,7 @@ HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *hi2c, uint16_t DevAddress,
     /* Init tickstart for timeout management*/
     tickstart = HAL_GetTick();
 
+    i2c_bench_stage(hi2c, I2C_TRACE_BUSY);
     if (I2C_WaitOnFlagUntilTimeout(hi2c, I2C_FLAG_BUSY, SET, I2C_TIMEOUT_BUSY, tickstart) != HAL_OK)
     {
       return HAL_ERROR;
@@ -2701,6 +2706,7 @@ HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *hi2c, uint16_t DevAddress,
       return HAL_ERROR;
     }
 
+    i2c_bench_stage(hi2c, I2C_TRACE_READ_START);
     /* Send Slave Address */
     /* Set NBYTES to write and reload if hi2c->XferCount > MAX_NBYTE_SIZE and generate RESTART */
     if (hi2c->XferCount > MAX_NBYTE_SIZE)
@@ -2727,6 +2733,7 @@ HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *hi2c, uint16_t DevAddress,
       /* Read data from RXDR */
       *hi2c->pBuffPtr = (uint8_t)hi2c->Instance->RXDR;
 
+      i2c_bench_stage(hi2c, I2C_TRACE_DATA_RX);
       /* Increment Buffer pointer */
       hi2c->pBuffPtr++;
 
@@ -2757,6 +2764,7 @@ HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *hi2c, uint16_t DevAddress,
     } while (hi2c->XferCount > 0U);
 
     /* No need to Check TC flag, with AUTOEND mode the stop is automatically generated */
+    i2c_bench_stage(hi2c, I2C_TRACE_WAIT_END);
     /* Wait until STOPF flag is reset */
     if (I2C_WaitOnSTOPFlagUntilTimeout(hi2c, Timeout, tickstart) != HAL_OK)
     {
@@ -3305,7 +3313,8 @@ HAL_StatusTypeDef HAL_I2C_IsDeviceReady(I2C_HandleTypeDef *hi2c, uint16_t DevAdd
             hi2c->State = HAL_I2C_STATE_READY;
 
             /* Update I2C error code */
-            hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
+            i2c_bench_error(hi2c, hi2c->Instance->ISR, 1);
+          hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
 
             /* Process Unlocked */
             __HAL_UNLOCK(hi2c);
@@ -3374,7 +3383,8 @@ HAL_StatusTypeDef HAL_I2C_IsDeviceReady(I2C_HandleTypeDef *hi2c, uint16_t DevAdd
     hi2c->State = HAL_I2C_STATE_READY;
 
     /* Update I2C error code */
-    hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
+    i2c_bench_error(hi2c, hi2c->Instance->ISR, 1);
+          hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
 
     /* Process Unlocked */
     __HAL_UNLOCK(hi2c);
@@ -5819,6 +5829,7 @@ static HAL_StatusTypeDef I2C_RequestMemoryWrite(I2C_HandleTypeDef *hi2c, uint16_
                                                 uint16_t MemAddress, uint16_t MemAddSize, uint32_t Timeout,
                                                 uint32_t Tickstart)
 {
+  i2c_bench_stage(hi2c, I2C_TRACE_ADDR_W);
   I2C_TransferConfig(hi2c, DevAddress, (uint8_t)MemAddSize, I2C_RELOAD_MODE, I2C_GENERATE_START_WRITE);
 
   /* Wait until TXIS flag is set */
@@ -5832,12 +5843,14 @@ static HAL_StatusTypeDef I2C_RequestMemoryWrite(I2C_HandleTypeDef *hi2c, uint16_
   {
     /* Send Memory Address */
     hi2c->Instance->TXDR = I2C_MEM_ADD_LSB(MemAddress);
+    i2c_bench_stage(hi2c, I2C_TRACE_REGISTER);
   }
   /* If Memory address size is 16Bit */
   else
   {
     /* Send MSB of Memory Address */
     hi2c->Instance->TXDR = I2C_MEM_ADD_MSB(MemAddress);
+    i2c_bench_stage(hi2c, I2C_TRACE_REGISTER);
 
     /* Wait until TXIS flag is set */
     if (I2C_WaitOnTXISFlagUntilTimeout(hi2c, Timeout, Tickstart) != HAL_OK)
@@ -5847,6 +5860,7 @@ static HAL_StatusTypeDef I2C_RequestMemoryWrite(I2C_HandleTypeDef *hi2c, uint16_
 
     /* Send LSB of Memory Address */
     hi2c->Instance->TXDR = I2C_MEM_ADD_LSB(MemAddress);
+    i2c_bench_stage(hi2c, I2C_TRACE_REGISTER);
   }
 
   /* Wait until TCR flag is set */
@@ -5874,6 +5888,7 @@ static HAL_StatusTypeDef I2C_RequestMemoryRead(I2C_HandleTypeDef *hi2c, uint16_t
                                                uint16_t MemAddress, uint16_t MemAddSize, uint32_t Timeout,
                                                uint32_t Tickstart)
 {
+  i2c_bench_stage(hi2c, I2C_TRACE_ADDR_W);
   I2C_TransferConfig(hi2c, DevAddress, (uint8_t)MemAddSize, I2C_SOFTEND_MODE, I2C_GENERATE_START_WRITE);
 
   /* Wait until TXIS flag is set */
@@ -5887,12 +5902,14 @@ static HAL_StatusTypeDef I2C_RequestMemoryRead(I2C_HandleTypeDef *hi2c, uint16_t
   {
     /* Send Memory Address */
     hi2c->Instance->TXDR = I2C_MEM_ADD_LSB(MemAddress);
+    i2c_bench_stage(hi2c, I2C_TRACE_REGISTER);
   }
   /* If Memory address size is 16Bit */
   else
   {
     /* Send MSB of Memory Address */
     hi2c->Instance->TXDR = I2C_MEM_ADD_MSB(MemAddress);
+    i2c_bench_stage(hi2c, I2C_TRACE_REGISTER);
 
     /* Wait until TXIS flag is set */
     if (I2C_WaitOnTXISFlagUntilTimeout(hi2c, Timeout, Tickstart) != HAL_OK)
@@ -5902,6 +5919,7 @@ static HAL_StatusTypeDef I2C_RequestMemoryRead(I2C_HandleTypeDef *hi2c, uint16_t
 
     /* Send LSB of Memory Address */
     hi2c->Instance->TXDR = I2C_MEM_ADD_LSB(MemAddress);
+    i2c_bench_stage(hi2c, I2C_TRACE_REGISTER);
   }
 
   /* Wait until TC flag is set */
@@ -6968,6 +6986,7 @@ static HAL_StatusTypeDef I2C_WaitOnFlagUntilTimeout(I2C_HandleTypeDef *hi2c, uin
       {
         if (__HAL_I2C_GET_FLAG(hi2c, Flag) == Status)
         {
+          i2c_bench_error(hi2c, hi2c->Instance->ISR, 1);
           hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
           hi2c->State = HAL_I2C_STATE_READY;
           hi2c->Mode = HAL_I2C_MODE_NONE;
@@ -7008,6 +7027,7 @@ static HAL_StatusTypeDef I2C_WaitOnTXISFlagUntilTimeout(I2C_HandleTypeDef *hi2c,
       {
         if (__HAL_I2C_GET_FLAG(hi2c, I2C_FLAG_TXIS) == RESET)
         {
+          i2c_bench_error(hi2c, hi2c->Instance->ISR, 1);
           hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
           hi2c->State = HAL_I2C_STATE_READY;
           hi2c->Mode = HAL_I2C_MODE_NONE;
@@ -7047,7 +7067,8 @@ static HAL_StatusTypeDef I2C_WaitOnSTOPFlagUntilTimeout(I2C_HandleTypeDef *hi2c,
     {
       if (__HAL_I2C_GET_FLAG(hi2c, I2C_FLAG_STOPF) == RESET)
       {
-        hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
+        i2c_bench_error(hi2c, hi2c->Instance->ISR, 1);
+          hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
         hi2c->State = HAL_I2C_STATE_READY;
         hi2c->Mode = HAL_I2C_MODE_NONE;
 
@@ -7125,7 +7146,8 @@ static HAL_StatusTypeDef I2C_WaitOnRXNEFlagUntilTimeout(I2C_HandleTypeDef *hi2c,
     {
       if (__HAL_I2C_GET_FLAG(hi2c, I2C_FLAG_RXNE) == RESET)
       {
-        hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
+        i2c_bench_error(hi2c, hi2c->Instance->ISR, 1);
+          hi2c->ErrorCode |= HAL_I2C_ERROR_TIMEOUT;
         hi2c->State = HAL_I2C_STATE_READY;
 
         /* Process Unlocked */
@@ -7154,6 +7176,9 @@ static HAL_StatusTypeDef I2C_IsErrorOccurred(I2C_HandleTypeDef *hi2c, uint32_t T
   uint32_t tickstart = Tickstart;
   uint32_t tmp1;
   HAL_I2C_ModeTypeDef tmp2;
+
+  if (itflag & (I2C_FLAG_AF | I2C_FLAG_BERR | I2C_FLAG_OVR | I2C_FLAG_ARLO | I2C_FLAG_TIMEOUT | I2C_FLAG_PECERR | I2C_FLAG_ALERT))
+    i2c_bench_error(hi2c, itflag, 0);
 
   if (HAL_IS_BIT_SET(itflag, I2C_FLAG_AF))
   {
@@ -7189,6 +7214,7 @@ static HAL_StatusTypeDef I2C_IsErrorOccurred(I2C_HandleTypeDef *hi2c, uint32_t T
             /* Check for the Timeout */
             if ((HAL_GetTick() - tickstart) > I2C_TIMEOUT_STOPF)
             {
+              i2c_bench_error(hi2c, hi2c->Instance->ISR, 1);
               error_code |= HAL_I2C_ERROR_TIMEOUT;
 
               status = HAL_ERROR;
@@ -7214,6 +7240,10 @@ static HAL_StatusTypeDef I2C_IsErrorOccurred(I2C_HandleTypeDef *hi2c, uint32_t T
 
   /* Refresh Content of Status register */
   itflag = hi2c->Instance->ISR;
+  if (itflag & (I2C_FLAG_AF | I2C_FLAG_BERR | I2C_FLAG_OVR | I2C_FLAG_ARLO | I2C_FLAG_TIMEOUT | I2C_FLAG_PECERR | I2C_FLAG_ALERT))
+    i2c_bench_error(hi2c, itflag, 0);
+
+
 
   /* Then verify if an additional errors occurs */
   /* Check if a Bus error occurred */

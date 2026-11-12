@@ -29,9 +29,9 @@ typedef enum {
 #define MB_F_QTY_LO    5u
 #define MB_HEADER_SIZE 6u
 
-/* Registers 80-83 are read-only I2C2 recovery diagnostics. */
-#define MB_REG_MAX     83u
-#define MB_REG_LIMIT   84u
+/* 80-83 are I2C2 recovery diagnostics; 84-91 are lamp verification diagnostics. */
+#define MB_REG_MAX     2015u
+#define MB_REG_LIMIT   (MB_REG_MAX + 1u)
 
 /* Diagnostics (FC 0x08) sub-functions. */
 #define MB_DIAG_RETURN_QUERY   0x00u

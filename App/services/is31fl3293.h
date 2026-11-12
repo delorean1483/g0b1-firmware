@@ -18,19 +18,37 @@
 
 #define IS31_KEY            0xC5u
 #define IS31_SHUTDOWN_OFF   0x70u
+#define IS31_NORMAL_200HZ   0x01u
 #define IS31_NORMAL_400HZ   0x05u
 #define IS31_CONFIG_VAL     0x00u
 #define IS31_CURRENT_VAL    0x3Fu
 #define IS31_SCALING_FULL   0xFFu
 #define IS31_PWM_MAX        4095u
 
-int is31_init(const i2c_backend_t *bus);     /* Initializes in shutdown. Stops at the first failed transfer. */
-int is31_set_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3); /* clamps each to 4095 */
-int is31_enable_outputs(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3);
+#define IS31_READ_FAILED 0x100u
+#define IS31_NOT_READ    0x101u
+typedef struct {
+    uint16_t control, before_control, before_mode, after_mode, result;
+    uint16_t disabled_mode, cleared_mode, current_mode, pwm_mode;
+} is31_enable_sample_t;
+
+uint16_t is31_read_byte(const i2c_backend_t *bus, uint8_t reg);
+int is31_init(const i2c_backend_t *bus, uint16_t *reset_regs, uint16_t *configured_regs);     /* Initializes in shutdown. Stops at the first failed transfer. */
+/* Reassert PWM mode, write PWM (clamped to 4095), and latch. */
+int is31_write_pwm_and_latch(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3);
+int is31_set_pwm(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3);
+int is31_enable_outputs(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3,
+                       is31_enable_sample_t *sample);
+void is31_set_pwm_hz(uint16_t hz);
+uint16_t is31_pwm_hz(void);
+uint8_t is31_control_value(uint16_t out1, uint16_t out2, uint16_t out3);
 /* Re-writes configuration and PWM without the reset / shutdown / zero-PWM steps
    of is31_init, so a lit lamp does not flicker. Order: 0x02, 0x03, 0x10, 0x27,
-   PWM at 0x19, 0x28, 0x01. All-zero requests write only shutdown.
+   PWM at 0x19, 0x28, 0x01. From shutdown, wake with 0x05 before setting
+   mode or PWM, then verify mode after final enable. Zero requests assert
+   shutdown first and restore the full image with outputs off.
    0 ok; -1 at the first failed transfer. */
-int is31_restore(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3);
-int is31_shutdown(const i2c_backend_t *bus); /* 0x01 <- 0x70 */
+int is31_restore(const i2c_backend_t *bus, uint16_t out1, uint16_t out2, uint16_t out3,
+                 is31_enable_sample_t *sample);
+int is31_shutdown(const i2c_backend_t *bus); /* Shutdown first, then 0x02 <- 0. */
 #endif

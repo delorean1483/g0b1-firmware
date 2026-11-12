@@ -1,8 +1,15 @@
 #ifndef DRV_I2C2_BUS_H
 #define DRV_I2C2_BUS_H
 #include <stdint.h>
+typedef struct {
+    uint32_t error, isr, tick;
+    uint16_t status, lines;
+    uint8_t attempted;
+} drv_i2c2_result_t;
+const drv_i2c2_result_t *drv_i2c2_last_result(void);
 /* Shared blocking superloop-only transport. At most one clear per second.
  * Initialize once before either client starts; does not touch hardware. */
+uint16_t drv_i2c2_snapshot(uint32_t *tick);
 void drv_i2c2_init(void);
 int drv_i2c2_read(uint8_t addr7, uint8_t reg, uint8_t *buf,
                   uint16_t len, uint32_t timeout_ms);

@@ -1,14 +1,16 @@
 #ifndef RGB_H
 #define RGB_H
 /* External RGB lamp service. One transport-independent entry (rgb_set_logical);
-   all I2C happens in rgb_process() from the superloop, never blocking.
+   all I2C happens in rgb_process() from the superloop using bounded transfers.
    I2C happens only when: (a) the chip is not initialized and the retry time
-   has come (init, backoff 500..8000 ms); (b) a requested color is pending
-   (shutdown for zero, restore when waking, PWM + latch while lit);
+   has come (init, backoff 500..1000 ms); (b) a requested color is pending
+   (shutdown for zero, restore when waking, mode + PWM + latch while lit);
    (c) every RGB_REFRESH_MS of idle time (restore the applied color or shutdown);
-   (d) after a failed apply/refresh, once the backoff expires (is31_restore of
+   (d) immediately after a failed write, attempt a full restore and readback.
+   If that fails, retry once backoff expires (is31_restore of
    the requested color, no reset). RGB_REINIT_FAILS consecutive failures fall
-   back to (a), which resets the chip. Otherwise none.
+   back to (a), which resets the chip. Each completed apply/refresh reads
+   mode/control explicitly and requires matching values before APPLY_OK.
    rgb_set_logical must be called from the main loop, not an ISR (a future BLE
    handler included); it is not interrupt-safe. */
 #include "i2c_backend.h"
@@ -17,16 +19,29 @@
 #define RGB_ST_PRESENT   0x0001u  /* chip found and initialized; stays set after an apply failure until a re-init fails */
 #define RGB_ST_APPLY_OK  0x0002u  /* last apply succeeded */
 #define RGB_ST_PENDING   0x0004u  /* requested color not yet applied */
+#define RGB_FAST_RETRY_MS 50u
+#define RGB_RETRY_LOG_BASE 1888u
+#define RGB_RETRY_LOG_SLOTS 16u
+#define RGB_RETRY_LOG_WORDS 8u
+#define RGB_RETRY_LOG_END (RGB_RETRY_LOG_BASE + RGB_RETRY_LOG_SLOTS * RGB_RETRY_LOG_WORDS - 1u)
 #define RGB_RETRY_MIN_MS 500u
-#define RGB_RETRY_MAX_MS 8000u
-#define RGB_REFRESH_MS   10000u    /* idle refresh period */
+#define RGB_RETRY_MAX_MS 1000u
+#define RGB_REFRESH_MS   1000u     /* idle refresh period */
 #define RGB_REINIT_FAILS 3u       /* consecutive failed applies/refreshes before a reset re-init */
 
 void     rgb_init(const i2c_backend_t *bus, uint32_t now); /* stores the bus, resets state; no I2C */
+/* Snapshot monotonic tick and current SCL/SDA levels (bit 0/1). */
+void rgb_set_bus_snapshot(uint16_t (*snapshot)(uint32_t *tick));
+#ifdef RGB_BENCH_INJECTION
+/* 0 disarms, 1 injects a failure, 2 also simulates held SDA at the deadline. */
+int rgb_bench_arm(uint16_t mode);
+#endif
 void     rgb_set_logical(uint8_t r, uint8_t g, uint8_t b); /* THE entry point for every transport */
 void     rgb_get_requested(uint8_t out[3]);                /* r, g, b */
 void     rgb_get_applied(uint8_t out[3]);
 uint16_t rgb_get_status(void);
+/* Read-only verification diagnostics at firmware registers 84 through 91 and 139 through 140. */
+uint16_t rgb_get_diagnostic(uint16_t reg);
 void     rgb_process(uint32_t now);                        /* superloop; the only place that does I2C */
 uint16_t rgb_to12(uint8_t v);                              /* (v*4095+127)/255 */
 #endif

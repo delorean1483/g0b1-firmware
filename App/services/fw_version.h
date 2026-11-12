@@ -40,10 +40,26 @@
  * v1.1.97: bench build with three consecutive I2C2 failures before recovery
  *          and an F1-style GPIO sequence when both lines are released.
  * v1.1.98: keep the IS31 in software shutdown while requested RGB is zero.
- * v1.1.99: explicitly disable each IS31 output whose PWM is zero. */
+ * v1.1.99: explicitly disable each IS31 output whose PWM is zero.
+ * v1.2.1: restore PWM mode on applies and verify mode/control readback.
+ *          1.2.0 is reserved for the separate unflashed timing candidate.
+ * v1.2.2: explicitly address each mode/control register read.
+ * v1.2.3: one-second refresh/retry cap; fresh commands bypass backoff.
+ * v1.2.4: I2C error event log and bounded mode-verified odd/even probe.
+ * v1.2.5: Clear stale HAL error flags before each blocking transfer.
+ * v1.2.6: Pre-call and first-error I2C hardware/transfer-phase snapshots.
+ * v1.2.7: Guard blocking I2C transfers against low SCL or SDA.
+ * v1.2.8: Restore and verify the lamp immediately after a failed write.
+ * v1.2.9: Reassert mode after enable and record wake/alignment reads.
+ * v1.3.0: Stage lamp wake with outputs disabled before loading PWM.
+ * v1.3.1: One 50 ms idle-bus retry after failed lamp write/restore. */
 #define G0B1_FW_VERSION_MAJOR 1u
-#define G0B1_FW_VERSION_MINOR 1u
-#define G0B1_FW_VERSION_PATCH 99u
+#define G0B1_FW_VERSION_MINOR 3u
+#ifdef RGB_BENCH_INJECTION
+#define G0B1_FW_VERSION_PATCH 3u /* Bench fault-injection image only. */
+#else
+#define G0B1_FW_VERSION_PATCH 5u
+#endif
 
 /* single-register encoding: major*10000 + minor*100 + patch  (max 6.55.35) */
 #define G0B1_FW_VERSION_ENC \

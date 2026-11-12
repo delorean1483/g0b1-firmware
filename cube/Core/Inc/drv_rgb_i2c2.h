@@ -6,5 +6,7 @@
 #include "i2c_backend.h"
 
 const i2c_backend_t *drv_rgb_i2c2_backend(void);
+void drv_rgb_i2c2_probe_register(void);
+void drv_rgb_i2c2_probe_process(uint32_t now);
 
 #endif /* DRV_RGB_I2C2_H */

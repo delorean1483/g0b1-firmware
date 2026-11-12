@@ -127,13 +127,54 @@ static void test_status_read_only(void)
 static void test_past_max_unbound(void)
 {
     uint16_t v;
-    TEST_ASSERT_EQUAL_UINT(83U, MB_REG_MAX); /* I2C2 diagnostics extend the map. */
+    TEST_ASSERT_EQUAL_UINT(RGB_RETRY_LOG_END, MB_REG_MAX);
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_read(MB_REG_MAX + 1U, &v));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(90U, &v));
+    TEST_ASSERT_EQUAL_UINT16(rgb_get_diagnostic(90), v);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_write(84U, 1));
+}
+
+static void test_retry_ring_reads_through_modbus_frame(void)
+{
+    const uint16_t address = RGB_RETRY_LOG_BASE - 1u + 64u;
+    uint8_t req[8] = {MB_SLAVE_ADDR, MB_FC_READ_HOLDING,
+                      (uint8_t)(address >> 8), (uint8_t)address, 0, 64};
+    uint8_t response[MB_MAX_FRAME];
+    uint16_t length = 0;
+    put_crc(req, 6u);
+    mb_engine_process(req, sizeof(req), response, &length);
+    TEST_ASSERT_EQUAL_UINT8(MB_FC_READ_HOLDING, response[1]);
+    TEST_ASSERT_EQUAL_UINT8(128u, response[2]);
+    TEST_ASSERT_EQUAL_UINT16(133u, length);
+}
+
+static void test_pwm_selector_sets_staged_wake_and_requires_off(void)
+{
+    uint16_t value;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(155u, &value));
+    TEST_ASSERT_EQUAL_UINT16(400u, value);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(155u, 300u));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(155u, 200u));
+    f.mode_on_enable = 1u;
+    write_rgb(255, 255, 0);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(155u, 400u));
+    rgb_process(10);
+    TEST_ASSERT_EQUAL_HEX8(0x31, f.regs[1]);
+    TEST_ASSERT_EQUAL_HEX16(0x01, rgb_get_diagnostic(1512));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(155u, 400u));
+    write_rgb(0, 0, 0);
+    rgb_process(20);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(155u, 400u));
+    write_rgb(255, 255, 0);
+    rgb_process(30);
+    TEST_ASSERT_EQUAL_HEX8(0x35, f.regs[1]);
 }
 
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_pwm_selector_sets_staged_wake_and_requires_off);
+    RUN_TEST(test_retry_ring_reads_through_modbus_frame);
     RUN_TEST(test_write_channels_set_requested);
     RUN_TEST(test_read_returns_applied);
     RUN_TEST(test_three_writes_one_update);

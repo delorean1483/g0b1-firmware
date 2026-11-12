@@ -3,9 +3,9 @@
 #include <stdint.h>
 typedef enum { HAL_OK=0, HAL_ERROR, HAL_BUSY, HAL_TIMEOUT } HAL_StatusTypeDef;
 typedef enum { GPIO_PIN_RESET=0, GPIO_PIN_SET=1 } GPIO_PinState;
-typedef struct { uint32_t CR1, ISR; } I2C_TypeDef;
+typedef struct { uint32_t CR1, CR2, ISR; } I2C_TypeDef;
 typedef struct { uint32_t Timing; } I2C_InitTypeDef;
-typedef struct { I2C_TypeDef *Instance; I2C_InitTypeDef Init; uint32_t ErrorCode; } I2C_HandleTypeDef;
+typedef struct { I2C_TypeDef *Instance; I2C_InitTypeDef Init; uint32_t ErrorCode, State; uint16_t XferCount, XferSize; uint8_t *pBuffPtr; } I2C_HandleTypeDef;
 typedef struct { int unused; } GPIO_TypeDef;
 typedef struct { uint32_t Pin, Mode, Pull, Speed, Alternate; } GPIO_InitTypeDef;
 extern GPIO_TypeDef test_gpioa, test_gpiob;
@@ -24,6 +24,8 @@ extern GPIO_TypeDef test_gpioa, test_gpiob;
 #define I2C_MEMADD_SIZE_8BIT 1u
 #define I2C_ISR_BUSY (1u<<15)
 #define HAL_I2C_ERROR_AF 4u
+#define HAL_I2C_ERROR_ARLO 2u
+#define HAL_I2C_ERROR_TIMEOUT 32u
 void test_disable(void);
 void test_reset(void);
 #define __HAL_I2C_DISABLE(h) test_disable()

@@ -10,12 +10,18 @@ typedef struct { uint8_t reg; uint8_t len; uint8_t data[8]; } fake_is31_xfer_t;
 typedef struct {
     i2c_backend_t api;
     uint8_t  regs[0x40];
+    uint8_t  mode_on_enable;
+    bool     corrupt_next_write;
     bool     fail;            /* every transfer returns -1, nothing logged */
     bool     fail_pwm;        /* writes of non-zero PWM data (0x19) return -1; init's all-zero PWM write succeeds */
+    bool     fail_read;
+    bool     fail_next_read;
+    bool     corrupt_read_mode, corrupt_read_control;
     unsigned attempts;        /* every read/write call, failed or not */
-    fake_is31_xfer_t log[32]; unsigned nlog;   /* successful writes, in order */
+    fake_is31_xfer_t log[64]; unsigned nlog;   /* successful writes, in order */
     unsigned pwm_latches;     /* successful writes of 0xC5 to 0x28 */
 } fake_is31_t;
 
 void fake_is31_init(fake_is31_t *f);
 #endif
+

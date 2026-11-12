@@ -256,6 +256,7 @@ void app_main(void)
     drv_i2c2_init();
     heater_init(drv_heater_i2c2_backend(), NULL, HAL_GetTick());
     rgb_init(drv_rgb_i2c2_backend(), HAL_GetTick());
+    rgb_set_bus_snapshot(drv_i2c2_snapshot);
 
     /* Task 8 — sensor conversion service + ADC1 feed. sensors_init sets the
      * per-channel averaging windows (must run before any sample) and the VREF
@@ -286,6 +287,7 @@ void app_main(void)
     mbp_heater_register();            /* heater regs 53-75 (command + telemetry) */
     mbp_rgb_register();               /* RGB lamp regs (command + status) */
     drv_i2c2_register_diagnostics();   /* Read-only recovery counters, 80-83 */
+    drv_rgb_i2c2_probe_register();
 
     /* Task 11 — control application: init the shared apu_ctx, register the six
      * OP_* mode handlers, and bind the control registers (2,4,5,10,17,18,22,23,
@@ -336,6 +338,7 @@ void app_main(void)
         heater_set_ambient_f(sensors_get_encl_temp_f()); /* AUTOTERM room temp (enclosure stand-in) */
         heater_process(now);     /* coprocessor client: self-paced at 250 ms */
         rgb_process(now);        /* RGB lamp client: after heater, never overlaps on I2C2 */
+        drv_rgb_i2c2_probe_process(now);
         HAL_IWDG_Refresh(&hiwdg);/* Task 10: kick the watchdog once per superloop pass */
     }
 }

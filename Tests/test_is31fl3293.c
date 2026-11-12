@@ -18,7 +18,7 @@ static void test_init_sequence(void)
 {
     static const uint8_t a[] = {0xC5}, b[] = {0x70}, c[] = {0x00}, d[] = {0x3F};
     static const uint8_t e[] = {0xFF, 0xFF, 0xFF}, g[6] = {0};
-    TEST_ASSERT_EQUAL_INT(0, is31_init(&f.api));
+    TEST_ASSERT_EQUAL_INT(0, is31_init(&f.api, 0, 0));
     TEST_ASSERT_EQUAL_UINT(8, f.nlog);
     expect_xfer(0, 0x3F, 1, a);
     expect_xfer(1, 0x01, 1, b);
@@ -34,31 +34,34 @@ static void test_set_pwm_packs_and_latches_once(void)
 {
     static const uint8_t p[] = {0xBC, 0x0A, 0xFF, 0x0F, 0x00, 0x00}, l[] = {0xC5};
     TEST_ASSERT_EQUAL_INT(0, is31_set_pwm(&f.api, 0x0ABC, 4095, 0));
-    expect_xfer(0, 0x19, 6, p);
-    expect_xfer(1, 0x28, 1, l);
+    static const uint8_t mode[] = {0};
+    expect_xfer(0, 0x02, 1, mode);
+    expect_xfer(1, 0x19, 6, p);
+    expect_xfer(2, 0x28, 1, l);
     TEST_ASSERT_EQUAL_UINT(1, f.pwm_latches);
-    TEST_ASSERT_EQUAL_UINT(2, f.nlog);
+    TEST_ASSERT_EQUAL_UINT(3, f.nlog);
 }
 static void test_set_pwm_clamps(void)
 {
     TEST_ASSERT_EQUAL_INT(0, is31_set_pwm(&f.api, 5000, 0, 0));
-    TEST_ASSERT_EQUAL_UINT8(0xFF, f.log[0].data[0]);
-    TEST_ASSERT_EQUAL_UINT8(0x0F, f.log[0].data[1]);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, f.log[1].data[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x0F, f.log[1].data[1]);
 }
 static void test_failure_propagates(void)
 {
     f.fail = true;
-    TEST_ASSERT_EQUAL_INT(-1, is31_init(&f.api));
+    TEST_ASSERT_EQUAL_INT(-1, is31_init(&f.api, 0, 0));
     TEST_ASSERT_EQUAL_UINT(0, f.nlog);
     TEST_ASSERT_EQUAL_UINT(1, f.attempts);
     TEST_ASSERT_EQUAL_INT(-1, is31_set_pwm(&f.api, 1, 2, 3));
 }
 static void test_restore_sequence(void)
 {
+    f.regs[1] = 0x75;
     static const uint8_t c0[] = {0x00}, cur[] = {0x3F}, e[] = {0xFF, 0xFF, 0xFF};
     static const uint8_t k[] = {0xC5}, p[] = {0xBC, 0x0A, 0xFF, 0x0F, 0x00, 0x00}, on[] = {0x35};
-    TEST_ASSERT_EQUAL_INT(0, is31_restore(&f.api, 0x0ABC, 4095, 0));
-    TEST_ASSERT_EQUAL_UINT(7, f.nlog);
+    TEST_ASSERT_EQUAL_INT(0, is31_restore(&f.api, 0x0ABC, 4095, 0, 0));
+    TEST_ASSERT_EQUAL_UINT(8, f.nlog);
     expect_xfer(0, 0x02, 1, c0);
     expect_xfer(1, 0x03, 1, cur);
     expect_xfer(2, 0x10, 3, e);
@@ -66,25 +69,27 @@ static void test_restore_sequence(void)
     expect_xfer(4, 0x19, 6, p);
     expect_xfer(5, 0x28, 1, k);
     expect_xfer(6, 0x01, 1, on);
+    expect_xfer(7, 0x02, 1, c0);
     TEST_ASSERT_EQUAL_UINT(1, f.pwm_latches);
 }
 static void test_restore_clamps_and_stops_at_failure(void)
 {
-    TEST_ASSERT_EQUAL_INT(0, is31_restore(&f.api, 5000, 0, 0));
+    f.regs[1] = 0x75;
+    TEST_ASSERT_EQUAL_INT(0, is31_restore(&f.api, 5000, 0, 0, 0));
     TEST_ASSERT_EQUAL_UINT8(0xFF, f.log[4].data[0]);
     TEST_ASSERT_EQUAL_UINT8(0x0F, f.log[4].data[1]);
     fake_is31_init(&f);
     f.fail = true;
-    TEST_ASSERT_EQUAL_INT(-1, is31_restore(&f.api, 1, 2, 3));
+    TEST_ASSERT_EQUAL_INT(-1, is31_restore(&f.api, 1, 2, 3, 0));
     TEST_ASSERT_EQUAL_UINT(1, f.attempts);
 }
 static void test_failed_pwm_write_sends_no_latch(void)
 {
     f.fail_pwm = true;
     TEST_ASSERT_EQUAL_INT(-1, is31_set_pwm(&f.api, 1, 2, 3));
-    TEST_ASSERT_EQUAL_UINT(0, f.nlog);
+    TEST_ASSERT_EQUAL_UINT(1, f.nlog);
     TEST_ASSERT_EQUAL_UINT(0, f.pwm_latches);
-    TEST_ASSERT_EQUAL_UINT(1, f.attempts);
+    TEST_ASSERT_EQUAL_UINT(2, f.attempts);
     fake_is31_init(&f);
     f.fail = true;
     TEST_ASSERT_EQUAL_INT(-1, is31_set_pwm(&f.api, 1, 2, 3));
