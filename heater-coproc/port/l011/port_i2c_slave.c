@@ -30,11 +30,13 @@ void I2C1_IRQHandler(void)
     if (isr & I2C_ISR_RXNE) htr_regs_i2c_rx((uint8_t)I2C1->RXDR);
     if (isr & I2C_ISR_TXIS) I2C1->TXDR = htr_regs_i2c_tx();
     if (isr & I2C_ISR_NACKF) I2C1->ICR = I2C_ICR_NACKCF;
+    /* Errors before STOP: a write that saw a bus error is dropped, not applied. */
+    if (isr & (I2C_ISR_BERR | I2C_ISR_ARLO | I2C_ISR_OVR)) {
+        I2C1->ICR = I2C_ICR_BERRCF | I2C_ICR_ARLOCF | I2C_ICR_OVRCF;
+        htr_regs_i2c_error();
+    }
     if (isr & I2C_ISR_STOPF) {
         I2C1->ICR = I2C_ICR_STOPCF;
         htr_regs_i2c_end();
-    }
-    if (isr & (I2C_ISR_BERR | I2C_ISR_ARLO | I2C_ISR_OVR)) {
-        I2C1->ICR = I2C_ICR_BERRCF | I2C_ICR_ARLOCF | I2C_ICR_OVRCF;
     }
 }

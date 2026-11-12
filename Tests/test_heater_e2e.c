@@ -32,15 +32,23 @@ static void both_to(uint32_t t){
         heater_process(now);
     }
 }
+/* The G0B1 hung or busy: only the coprocessor runs. */
+static void coproc_only_to(uint32_t t){
+    for(; now < t; now += 10U){ htr_regs_poll(now); htr_fsm_process(now); htr_regs_publish(now, 0); }
+}
 static heater_telemetry_t tel(void){ heater_telemetry_t t; heater_get_telemetry(&t); return t; }
+static uint8_t coproc_phase(void){ htr_fsm_view_t v; htr_fsm_view(now, &v); return v.phase; }
 
-void setUp(void){
-    fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4); now = 0;
-    g.high_pct[HTR_WIRING_3W] = 100; fake_ctx[0].probe_answer = HTR_PROBE_FOUND;
+static void coproc_boot(void){
     htr_regs_cfg_t rc = { 0, HTR_HW_ID_EF_L011, (1u<<1)|(1u<<2), 0, 0 };
     uint8_t type = htr_regs_init(&rc, now);
     htr_fsm_cfg_t fc = { drvs, 2, &g.api, false, &u3.api, &u4.api };
     htr_fsm_init(&fc, type, now);
+}
+void setUp(void){
+    fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4); now = 0;
+    g.high_pct[HTR_WIRING_3W] = 100; fake_ctx[0].probe_answer = HTR_PROBE_FOUND;
+    coproc_boot();
     heater_init(&bridge, 0, now);
 }
 void tearDown(void){}
@@ -67,12 +75,49 @@ void test_full_chain_detect_start_run_stop_cooldown(void){
     TEST_ASSERT_EQUAL_UINT8(0, tel().state);
     TEST_ASSERT_TRUE(tel().flags & HEATER_FLAG_SAFE_OFF);
 }
-void test_g0b1_rewriting_run_keeps_host_timeout_alive(void){
+void test_g0b1_heartbeat_keeps_the_host_live(void){
     both_to(7000); heater_set_request(1); both_to(7600);   /* request reaches the coprocessor first */
     fake_ctx[0].hint = HTR_HINT_RUNNING;
-    both_to(7000 + 15u * 60000u);                             /* 15 min > default 10 min timeout */
+    both_to(7000 + 15u * 60000u);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
     TEST_ASSERT_EQUAL(0u, fake_ctx[0].stops);
     TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_RUNNING, tel().phase);
+}
+/* Robb's validation list: loss of valid host traffic beyond the timeout ->
+   controlled stop; recovery -> no restart without a fresh request. */
+void test_g0b1_silence_stops_and_recovery_needs_a_fresh_request(void){
+    both_to(7000); heater_set_request(1); both_to(7600);
+    fake_ctx[0].hint = HTR_HINT_RUNNING; both_to(9000);
+    coproc_only_to(9000 + 9000u);
+    TEST_ASSERT_EQUAL(0u, fake_ctx[0].stops);                 /* under 10 s: still running */
+    coproc_only_to(9000 + 11000u);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
+    fake_ctx[0].hint = HTR_HINT_COOLDOWN; coproc_only_to(now + 1000u);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_COOLDOWN, coproc_phase());
+    both_to(now + 2000u);                                     /* G0B1 back, still asking for heat */
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());          /* latched off, not replayed */
+    fake_ctx[0].hint = HTR_HINT_OFF; both_to(now + 5000u);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, tel().phase);
+    heater_set_request(1); both_to(now + 600u);              /* fresh request */
+    TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
+}
+/* Coprocessor reset mid-run while the G0B1 still asks for heat: no restart. */
+void test_coprocessor_reset_does_not_restart_on_a_stale_request(void){
+    both_to(7000); heater_set_request(1); both_to(7600);
+    fake_ctx[0].hint = HTR_HINT_RUNNING; both_to(9000);
+    coproc_boot(); fake_ctx[0].hint = HTR_HINT_OFF;           /* reboot; heater stopped with it */
+    both_to(9000 + 15000u);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+}
+/* Modbus reg 75 START reaches the heater through the keyed request. */
+void test_start_command_starts_through_the_request(void){
+    both_to(7000);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START)); both_to(7600);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_STOP)); both_to(8200);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
 }
 /* Finding 3, end to end: fault -> request latched off -> clear-fault from
    the G0B1 -> OFF, and the heater is NOT restarted until a new ON. */
@@ -92,5 +137,8 @@ int main(void){ UNITY_BEGIN();
     RUN_TEST(test_fault_then_clear_from_g0b1_does_not_reignite);
 
     RUN_TEST(test_full_chain_detect_start_run_stop_cooldown);
-    RUN_TEST(test_g0b1_rewriting_run_keeps_host_timeout_alive);
+    RUN_TEST(test_g0b1_heartbeat_keeps_the_host_live);
+    RUN_TEST(test_g0b1_silence_stops_and_recovery_needs_a_fresh_request);
+    RUN_TEST(test_coprocessor_reset_does_not_restart_on_a_stale_request);
+    RUN_TEST(test_start_command_starts_through_the_request);
     return UNITY_END(); }

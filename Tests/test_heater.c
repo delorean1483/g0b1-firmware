@@ -18,12 +18,17 @@ void test_identifies_then_writes_control_block_every_250ms(void){
     heater_set_request(1); heater_set_level(6); heater_set_setpoint_c(22); heater_set_ambient_f(77);
     run_to(1000);
     TEST_ASSERT_TRUE(tel().present);
-    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_HEX8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
     TEST_ASSERT_EQUAL_UINT8(6, c.regs[HTR_R_LEVEL]);
     TEST_ASSERT_EQUAL_INT8(22, (int8_t)c.regs[HTR_R_SETPOINT_C]);
     TEST_ASSERT_EQUAL_HEX16(250, (uint16_t)(c.regs[HTR_R_AMBIENT_C_X10] | (c.regs[HTR_R_AMBIENT_C_X10+1] << 8))); /* 77F = 25.0C */
+    TEST_ASSERT_EQUAL_UINT8(HEATER_HOST_TIMEOUT_S, c.regs[HTR_R_HOST_TIMEOUT_S]);
+    TEST_ASSERT_EQUAL_HEX8(HTR_R_RUN_REQUEST, c.last_write_reg);  /* one block, 0x11..0x17 */
+    TEST_ASSERT_EQUAL_UINT16(7, c.last_write_len);
+    uint8_t hb = c.regs[HTR_R_HOST_HEARTBEAT];
     unsigned w = c.writes; run_to(2000);
     TEST_ASSERT_TRUE(c.writes - w >= 3 && c.writes - w <= 5);
+    TEST_ASSERT_NOT_EQUAL(hb, c.regs[HTR_R_HOST_HEARTBEAT]);     /* changes every poll */
 }
 void test_wrong_device_is_absent_and_never_written(void){
     c.regs[HTR_R_DEVICE_ID] = 0x12;
@@ -33,7 +38,7 @@ void test_wrong_device_is_absent_and_never_written(void){
     TEST_ASSERT_TRUE(tel().flags & HEATER_FLAG_COMMS_FAULT);
 }
 void test_unknown_map_version_is_not_controlled(void){
-    c.regs[HTR_R_MAP_VERSION] = 2;
+    c.regs[HTR_R_MAP_VERSION] = 1;                /* v1 coprocessor: unkeyed start */
     run_to(5000);
     TEST_ASSERT_FALSE(tel().present);
     TEST_ASSERT_EQUAL(0u, c.writes);
@@ -123,11 +128,38 @@ void test_no_coprocessor_at_boot(void){
    a later coprocessor reset or CLEAR_FAULT can never re-ignite on a stale ON. */
 void test_fault_latches_request_off(void){
     heater_set_request(1); run_to(1500);
-    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_HEX8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
     c.regs[HTR_R_PHASE] = HTR_PHASE_FAULT; run_to(2000);
     TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
     run_to(2500);
     TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+}
+/* Map v2: a host-timeout stop or a refused start also latches the request
+   off, so the G0B1 never keeps replaying a start the coprocessor dropped. */
+void test_host_timeout_stop_latches_request_off(void){
+    heater_set_request(1); run_to(1500);
+    put16(HTR_R_FLAGS, HTR_F_PRESENT | HTR_F_HOST_TIMEOUT_STOP); run_to(2000);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    run_to(2500);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+}
+void test_refused_start_latches_request_off(void){
+    heater_set_request(1); run_to(1500);
+    put16(HTR_R_FLAGS, HTR_F_PRESENT | HTR_F_START_REFUSED); run_to(2000);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+}
+/* START/STOP over Modbus reg 75 set the request (the only start path). */
+void test_start_and_stop_commands_drive_the_request(void){
+    run_to(1500);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    TEST_ASSERT_EQUAL_UINT8(1, heater_get_request());
+    run_to(1800);
+    TEST_ASSERT_EQUAL_HEX8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_STOP));
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    run_to(2100);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL(0u, c.command_writes);
 }
 /* Finding 3: commands (clear-fault etc.) reach the coprocessor once. */
 void test_command_forwarded_once_and_result_read_back(void){
@@ -159,6 +191,9 @@ void test_ambiguous_command_delivery_is_not_replayed_on_later_poll(void) {
     TEST_ASSERT_TRUE(tel().transport_errors>0);
 }
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_host_timeout_stop_latches_request_off);
+    RUN_TEST(test_refused_start_latches_request_off);
+    RUN_TEST(test_start_and_stop_commands_drive_the_request);
     RUN_TEST(test_ambiguous_command_delivery_is_not_replayed_on_later_poll);
     RUN_TEST(test_fault_latches_request_off);
     RUN_TEST(test_command_forwarded_once_and_result_read_back);

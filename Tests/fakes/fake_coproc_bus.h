@@ -1,12 +1,13 @@
 #ifndef FAKE_COPROC_BUS_H
 #define FAKE_COPROC_BUS_H
-/* i2c_backend_t over a plain 0x46-byte register image of the heater
+/* i2c_backend_t over a plain register image of the heater
    coprocessor, with failure injection and a write log. */
 #include "i2c_backend.h"
+#include "htr_i2c_map.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-#define FAKE_COPROC_REGS 0x46u
+#define FAKE_COPROC_REGS HTR_REG_COUNT
 typedef struct {
     i2c_backend_t api;
     uint8_t regs[FAKE_COPROC_REGS];
@@ -18,6 +19,6 @@ typedef struct {
     uint16_t last_write_len;
 } fake_coproc_t;
 
-/* Identity bytes preloaded (DEVICE_ID 0xEF, MAP_VERSION 1). */
+/* Identity bytes preloaded (DEVICE_ID 0xEF, MAP_VERSION = HTR_MAP_VERSION). */
 void fake_coproc_init(fake_coproc_t *f);
 #endif

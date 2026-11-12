@@ -15,6 +15,7 @@ static uint8_t  s_coproc_type = HTR_TYPE_AUTO;   /* HEATER_TYPE as read back */
 static uint8_t  s_identified;
 static uint8_t  s_ever_identified;   /* NACKs only count as transport faults after this */
 static uint8_t  s_cmd_pending;       /* COMMAND to send once (0 = none) */
+static uint8_t  s_heartbeat;         /* changes every poll: keeps the coprocessor's host live */
 static uint32_t s_last_poll, s_last_ok, s_last_xport;
 static uint8_t  s_xport_seen;
 static uint32_t s_xport_errors;
@@ -37,6 +38,7 @@ void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t 
     s_identified = 0U;
     s_ever_identified = 0U;
     s_cmd_pending = 0U;
+    s_heartbeat = 0U;
     s_last_poll = now - HEATER_IDENT_RETRY_MS;
     s_last_ok = now;
     s_xport_seen = 0U;
@@ -102,7 +104,7 @@ static int identify(void)
 void heater_process(uint32_t now)
 {
     uint8_t m[HTR_REG_COUNT];
-    uint8_t ctl[5];
+    uint8_t ctl[7];
     int r;
     if (s_bus == NULL) return;
 
@@ -120,11 +122,15 @@ void heater_process(uint32_t now)
     if ((uint32_t)(now - s_last_poll) < HEATER_POLL_MS) goto publish;
     s_last_poll = now;
 
-    ctl[0] = s_request;
+    /* One block 0x11..0x17: keyed run, level, setpoint, ambient, host
+       timeout and heartbeat (map v2). */
+    ctl[0] = s_request ? HTR_RUN_KEY : 0U;
     ctl[1] = s_level;
     ctl[2] = (uint8_t)s_setpoint;
     ctl[3] = (uint8_t)((uint16_t)s_ambient_x10 & 0xFFU);
     ctl[4] = (uint8_t)((uint16_t)s_ambient_x10 >> 8);
+    ctl[5] = HEATER_HOST_TIMEOUT_S;
+    ctl[6] = ++s_heartbeat;
     if (s_bus->write(s_bus->ctx, HTR_R_RUN_REQUEST, ctl, sizeof(ctl)) != 0) { xport_fail(now); goto lost_check; }
     if (s_type_pending) {
         if (s_bus->write(s_bus->ctx, HTR_R_HEATER_TYPE, &s_type_select, 1U) != 0) { xport_fail(now); goto lost_check; }
@@ -147,9 +153,13 @@ void heater_process(uint32_t now)
     s_coproc_type = m[HTR_R_HEATER_TYPE];
     s_t.cmd_result = m[HTR_R_CMD_RESULT];
     decode_status(m);
-    /* A coprocessor FAULT latches our request off: a later coprocessor reset or
-       CLEAR_FAULT must never re-ignite on a stale ON. A new ON write re-arms. */
-    if (s_t.phase == HTR_PHASE_FAULT) s_request = 0U;
+    /* A coprocessor FAULT, host-timeout stop or refused start latches our
+       request off: a later coprocessor reset or CLEAR_FAULT must never
+       re-ignite on a stale ON. A new ON write re-arms. */
+    if ((s_t.phase == HTR_PHASE_FAULT) ||
+        ((le16(m, HTR_R_FLAGS) & (HTR_F_HOST_TIMEOUT_STOP | HTR_F_START_REFUSED)) != 0U)) {
+        s_request = 0U;
+    }
     goto publish;
 
 lost_check:
@@ -195,6 +205,9 @@ void    heater_set_ambient_f(int16_t deg_f)
 bool heater_send_command(uint8_t cmd)
 {
     if ((cmd < HTR_CMD_START) || (cmd > HTR_CMD_AUTO_DETECT)) return false;
+    /* The coprocessor only starts through the keyed RUN_REQUEST (map v2). */
+    if (cmd == HTR_CMD_START) { s_request = 1U; return true; }
+    if (cmd == HTR_CMD_STOP)  { s_request = 0U; return true; }
     s_cmd_pending = cmd;
     return true;
 }

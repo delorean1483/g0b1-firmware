@@ -43,6 +43,7 @@ typedef struct {
 #define HEATER_IDENT_RETRY_MS  1000U
 #define HEATER_LOST_MS         5000U
 #define HEATER_XPORT_STICKY_MS 3000U
+#define HEATER_HOST_TIMEOUT_S     10U   /* coprocessor stops this long after our last heartbeat */
 
 /* reset_coproc may be NULL (no nRST GPIO wired). Never blocks boot. */
 void    heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t now);
@@ -57,7 +58,8 @@ void    heater_set_type_select(uint8_t type);     /* HTR_TYPE_*; forwarded once 
 uint8_t heater_get_type_select(void);
 void    heater_set_ambient_f(int16_t deg_f);      /* cabin temp for AUTOTERM regulation */
 /* Queue one coprocessor COMMAND (HTR_CMD_START..HTR_CMD_AUTO_DETECT), sent
-   once at the next poll. False for an unknown command. */
+   once at the next poll. START/STOP set the request instead (the coprocessor
+   only starts through the keyed RUN_REQUEST). False for an unknown command. */
 bool    heater_send_command(uint8_t cmd);
 void    heater_get_telemetry(heater_telemetry_t *out);
 #endif /* HEATER_H */
