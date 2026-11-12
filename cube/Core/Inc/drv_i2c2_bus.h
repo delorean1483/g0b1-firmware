@@ -11,6 +11,7 @@ const drv_i2c2_result_t *drv_i2c2_last_result(void);
  * Initialize once before either client starts; does not touch hardware. */
 uint16_t drv_i2c2_snapshot(uint32_t *tick);
 void drv_i2c2_init(void);
+uint32_t drv_i2c2_recovery_epoch(void);
 int drv_i2c2_read(uint8_t addr7, uint8_t reg, uint8_t *buf,
                   uint16_t len, uint32_t timeout_ms);
 int drv_i2c2_write(uint8_t addr7, uint8_t reg, const uint8_t *buf,

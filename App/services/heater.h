@@ -5,6 +5,11 @@
    and the start/run/cooldown state machine; this service only relays the
    request and mirrors status into the Modbus provider (mbp_heater). */
 #include "i2c_backend.h"
+#include "htr_i2c_map.h"
+
+#ifndef HEATER_EXPECTED_MAP_VERSION
+#define HEATER_EXPECTED_MAP_VERSION HTR_MAP_VERSION
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -39,6 +44,9 @@ typedef struct {
 #define HEATER_FLAG_COMMS_FAULT (1U << 3) /* run requested but heater link not fresh */
 #define HEATER_FLAG_XPORT_FAULT (1U << 4) /* G0B1<->coprocessor I2C failed within 3 s */
 
+#define HEATER_FLAG_MAP_MISMATCH   (1U << 5) /* identity/version incompatible, writes blocked */
+#define HEATER_FLAG_MAP_UNREADABLE (1U << 6) /* identity unverified, writes blocked */
+
 #define HEATER_POLL_MS          250U
 #define HEATER_IDENT_RETRY_MS  1000U
 #define HEATER_LOST_MS         5000U
@@ -46,6 +54,7 @@ typedef struct {
 
 /* reset_coproc may be NULL (no nRST GPIO wired). Never blocks boot. */
 void    heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t now);
+void    heater_set_recovery_epoch(uint32_t (*epoch)(void));
 void    heater_process(uint32_t now);
 void    heater_set_request(uint8_t on);
 uint8_t heater_get_request(void);

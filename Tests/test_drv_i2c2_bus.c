@@ -1,3 +1,4 @@
+#include "htr_i2c_map.h"
 #include "unity.h"
 #include "main.h"
 #include "drv_i2c2_bus.h"
@@ -434,24 +435,35 @@ void test_probe_end_deadline_wraps_safely(void)
     TEST_ASSERT_EQUAL(2,diag(111));
 }
 
-void test_guard_clears_before_first_command_attempt_and_never_replays(void)
+void test_guard_recovery_invalidates_heater_write_before_hal(void)
 {
     uint8_t command=3;
     sda_external_low=1;
     release_sda_after=2;
     first_result=HAL_TIMEOUT;
     TEST_ASSERT_EQUAL(-1,drv_heater_i2c2_backend()->write(0,0x18,&command,1));
-    TEST_ASSERT_EQUAL(1,writes_seen);
+    TEST_ASSERT_EQUAL(0,writes_seen);
+    TEST_ASSERT_EQUAL_UINT32(1,drv_i2c2_recovery_epoch());
     TEST_ASSERT_EQUAL(1,diag(137));
     TEST_ASSERT_EQUAL(1,diag(138));
     TEST_ASSERT_EQUAL(1,diag(81));
     TEST_ASSERT_EQUAL(0,diag(107));
 }
 
+void test_heater_control_write_is_not_replayed_after_recovery(void)
+{
+    uint8_t request = 0;
+    first_result = HAL_TIMEOUT;
+    prime_recovery();
+    TEST_ASSERT_EQUAL(-1, drv_heater_i2c2_backend()->write(0, HTR_R_RUN_REQUEST, &request, 1));
+    TEST_ASSERT_EQUAL(1, writes_seen);
+    TEST_ASSERT_EQUAL_UINT32(1, drv_i2c2_recovery_epoch());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_guard_clears_before_first_command_attempt_and_never_replays);
+    RUN_TEST(test_guard_recovery_invalidates_heater_write_before_hal);
     RUN_TEST(test_error_counters_and_event_log_preserve_arlo_payload);
     RUN_TEST(test_af_and_timeout_are_separate_from_recovery);
     RUN_TEST(test_busy_wait_timeout_does_not_inherit_other_device_arlo);
@@ -467,6 +479,7 @@ int main(void)
     RUN_TEST(test_failed_clear_with_idle_lines_still_blocks_until_cooldown_ends);
     RUN_TEST(test_idle_nack_on_retry_does_not_block_other_client);
     RUN_TEST(test_heater_command_is_not_replayed_by_transport);
+    RUN_TEST(test_heater_control_write_is_not_replayed_after_recovery);
     RUN_TEST(test_cooldown_wraps_safely);
     RUN_TEST(test_new_fault_cannot_clear_twice_during_cooldown);
     RUN_TEST(test_healthy_transfers_continue_during_cooldown);

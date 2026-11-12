@@ -1,4 +1,5 @@
 #include "drv_i2c2_bus.h"
+#include "htr_i2c_map.h"
 #include "main.h"
 #include "mb_regmodel.h"
 #include "i2c_bench_trace.h"
@@ -18,6 +19,7 @@ static unsigned s_transfer_failures;
 static int s_recovery_seen, s_clear_failed;
 static drv_i2c2_result_t s_result;
 /* Per device: HAL attempts, success, ARLO, AF, timeout, busy, other error. */
+static uint32_t s_recovery_epoch;
 static uint32_t s_is31_write_attempts, s_is31_write_failures;
 static uint16_t s_stats[2][7], s_deferred[2], s_event_sequence;
 static uint16_t s_guard_hits[2], s_guard_recoveries;
@@ -38,6 +40,7 @@ void drv_i2c2_init(void)
     s_transfer_failures = 0;
     s_recovery_seen = s_clear_failed = 0;
     memset(&s_result, 0, sizeof(s_result));
+    s_recovery_epoch = 0U;
     s_is31_write_attempts = s_is31_write_failures = 0;
     memset(s_stats, 0, sizeof(s_stats));
     memset(s_deferred, 0, sizeof(s_deferred));
@@ -252,8 +255,11 @@ static int recover_bus(void)
     if (clear) increment(&s_cleared); else increment(&s_failed);
     return clear ? 0 : -1;
 }
+uint32_t drv_i2c2_recovery_epoch(void) { return s_recovery_epoch; }
+
 static int recover_with_cooldown(void)
 {
+    ++s_recovery_epoch;
     s_clear_failed = (recover_bus() != 0);
     if (!s_clear_failed) s_transfer_failures = 0;
     s_recovery_seen = 1;
@@ -288,11 +294,16 @@ static int transfer(int write, int retry, uint8_t addr7, uint8_t reg, uint8_t *b
                     uint16_t len, uint32_t timeout_ms)
 {
     unsigned attempt;
+    uint32_t epoch = s_recovery_epoch;
     s_result.attempted = 0;
     s_result.status = HAL_BUSY;
     s_result.error = 0;
     for (attempt = 0; attempt < 2u; ++attempt) {
         if (!prepare_transfer(addr7, buf, len)) return -1;
+        if (write && addr7 == HTR_I2C_ADDR7 && epoch != s_recovery_epoch) {
+            s_trace.active = 0;
+            return -1;
+        }
         /* Blocking HAL checks BUSY before resetting ErrorCode and ORs timeout
          * into it on that path. Clear the previous operation's flags here so
          * a stuck-bus follower cannot inherit another slave's ARLO/NACK. */

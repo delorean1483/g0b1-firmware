@@ -12,7 +12,13 @@ static int16_t  s_ambient_x10 = HTR_AMBIENT_UNKNOWN;
 static uint8_t  s_type_select = HTR_TYPE_AUTO;
 static uint8_t  s_type_pending;
 static uint8_t  s_coproc_type = HTR_TYPE_AUTO;   /* HEATER_TYPE as read back */
-static uint8_t  s_identified;
+static uint8_t s_identified;
+static uint32_t (*s_recovery_epoch)(void);
+static uint32_t s_checked_epoch;
+static uint16_t s_map_fault;
+static bool s_status_seen;
+
+
 static uint8_t  s_ever_identified;   /* NACKs only count as transport faults after this */
 static uint8_t  s_cmd_pending;       /* COMMAND to send once (0 = none) */
 static uint32_t s_last_poll, s_last_ok, s_last_xport;
@@ -35,6 +41,10 @@ void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t 
     s_type_pending = 0U;
     s_coproc_type = HTR_TYPE_AUTO;
     s_identified = 0U;
+    s_recovery_epoch = NULL;
+    s_checked_epoch = 0U;
+    s_map_fault = 0U;
+    s_status_seen = false;
     s_ever_identified = 0U;
     s_cmd_pending = 0U;
     s_last_poll = now - HEATER_IDENT_RETRY_MS;
@@ -92,42 +102,118 @@ static void decode_status(const uint8_t *m)
     s_t.flags = legacy;
 }
 
-static int identify(void)
+void heater_set_recovery_epoch(uint32_t (*epoch)(void))
+{
+    s_recovery_epoch = epoch;
+    s_checked_epoch = epoch ? epoch() : 0U;
+}
+
+static bool recovery_changed(void)
+{
+    return s_recovery_epoch && s_recovery_epoch() != s_checked_epoch;
+}
+
+static void close_write_gate(uint16_t fault)
+{
+    s_identified = 0U;
+    s_status_seen = false;
+    s_map_fault = fault;
+    s_request = 0U;
+    s_cmd_pending = 0U;
+    s_type_pending = 0U;
+}
+
+static bool check_map(uint32_t now)
 {
     uint8_t id[2];
-    if (s_bus->read(s_bus->ctx, HTR_R_DEVICE_ID, id, 2U) != 0) return -1;
-    return ((id[0] == HTR_DEVICE_ID) && (id[1] == HTR_MAP_VERSION)) ? 1 : 0;
+    if (s_bus->read(s_bus->ctx, HTR_R_DEVICE_ID, id, sizeof id) != 0) {
+        close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
+        if (s_ever_identified) xport_fail(now);
+        return false;
+    }
+    if (recovery_changed()) close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
+    s_checked_epoch = s_recovery_epoch ? s_recovery_epoch() : 0U;
+    if (id[0] != HTR_DEVICE_ID || id[1] != HEATER_EXPECTED_MAP_VERSION) {
+        close_write_gate(HEATER_FLAG_MAP_MISMATCH);
+        return false;
+    }
+    s_identified = s_ever_identified = 1U;
+    s_map_fault = 0U;
+    return true;
+}
+
+/* All service writes go through this gate. The hardware backend also stops a
+   write if its own bus preparation performs a recovery before reaching HAL. */
+static int write_checked(uint8_t reg, const uint8_t *data, uint16_t len)
+{
+    if (!s_identified || recovery_changed()) {
+        close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
+        return -1;
+    }
+    int result = s_bus->write(s_bus->ctx, reg, data, len);
+    if (recovery_changed()) {
+        close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
+        return -1;
+    }
+    return result;
 }
 
 void heater_process(uint32_t now)
 {
     uint8_t m[HTR_REG_COUNT];
     uint8_t ctl[5];
-    int r;
     if (s_bus == NULL) return;
 
-    if (s_identified == 0U) {
-        if ((uint32_t)(now - s_last_poll) < HEATER_IDENT_RETRY_MS) goto publish;
-        s_last_poll = now;
-        r = identify();
-        /* A unit with no coprocessor fitted is absent, not faulted (spec 7). */
-        if (r < 0) { if (s_ever_identified) xport_fail(now); goto publish; }
-        if (r == 0) goto publish;            /* wrong device / map: never control it */
-        s_identified = 1U;
-        s_ever_identified = 1U;
-        s_last_ok = now;
+    bool recovered = recovery_changed();
+    if (recovered) {
+        close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
+        s_checked_epoch = s_recovery_epoch();
     }
-    if ((uint32_t)(now - s_last_poll) < HEATER_POLL_MS) goto publish;
+    uint32_t interval = s_identified ? HEATER_POLL_MS : HEATER_IDENT_RETRY_MS;
+    if (!recovered && (uint32_t)(now - s_last_poll) < interval) goto publish;
+    bool previously_identified = s_identified != 0U;
     s_last_poll = now;
+    /* The v1 status block starts at 0x10, so identity is read separately. */
+    if (!check_map(now)) {
+        if (s_map_fault == HEATER_FLAG_MAP_UNREADABLE) goto lost_check;
+        goto publish;
+    }
+    if (s_bus->read(s_bus->ctx, HTR_R_HEATER_TYPE, &m[HTR_R_HEATER_TYPE],
+                    (uint16_t)(HTR_REG_COUNT - HTR_R_HEATER_TYPE)) != 0 || recovery_changed()) {
+        close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
+        xport_fail(now);
+        goto lost_check;
+    }
+
+    uint16_t frames = le16(m, HTR_R_VALID_FRAMES);
+    bool reset_hint = s_status_seen &&
+        ((m[HTR_R_PHASE] == HTR_PHASE_DETECTING && s_t.phase != HTR_PHASE_DETECTING) ||
+         (frames < s_t.valid_frames && (uint16_t)(frames - s_t.valid_frames) >= 0x8000u));
+    if (reset_hint) {
+        close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
+        if (!check_map(now)) goto lost_check;
+    }
+    s_coproc_type = m[HTR_R_HEATER_TYPE];
+    s_t.cmd_result = m[HTR_R_CMD_RESULT];
+    decode_status(m);
+    s_status_seen = true;
+    if (s_t.phase == HTR_PHASE_FAULT) {
+        s_request = 0U;
+        if (s_cmd_pending == HTR_CMD_START) s_cmd_pending = 0U;
+    }
+    if (!previously_identified) {
+        s_last_ok = now;
+        goto publish;
+    }
 
     ctl[0] = s_request;
     ctl[1] = s_level;
     ctl[2] = (uint8_t)s_setpoint;
     ctl[3] = (uint8_t)((uint16_t)s_ambient_x10 & 0xFFU);
     ctl[4] = (uint8_t)((uint16_t)s_ambient_x10 >> 8);
-    if (s_bus->write(s_bus->ctx, HTR_R_RUN_REQUEST, ctl, sizeof(ctl)) != 0) { xport_fail(now); goto lost_check; }
+    if (write_checked(HTR_R_RUN_REQUEST, ctl, sizeof(ctl)) != 0) { xport_fail(now); goto lost_check; }
     if (s_type_pending) {
-        if (s_bus->write(s_bus->ctx, HTR_R_HEATER_TYPE, &s_type_select, 1U) != 0) { xport_fail(now); goto lost_check; }
+        if (write_checked(HTR_R_HEATER_TYPE, &s_type_select, 1U) != 0) { xport_fail(now); goto lost_check; }
         s_type_pending = 0U;
     }
     if (s_cmd_pending != 0U) {
@@ -135,31 +221,21 @@ void heater_process(uint32_t now)
          * A command must not be replayed by the next service poll either. */
         uint8_t command = s_cmd_pending;
         s_cmd_pending = 0U;
-        if (s_bus->write(s_bus->ctx, HTR_R_COMMAND, &command, 1U) != 0) { xport_fail(now); goto lost_check; }
-    }
-    /* One read covers control readback (0x10..) and the status block. */
-    if (s_bus->read(s_bus->ctx, HTR_R_HEATER_TYPE, &m[HTR_R_HEATER_TYPE],
-                    (uint16_t)(HTR_REG_COUNT - HTR_R_HEATER_TYPE)) != 0) {
-        xport_fail(now);
-        goto lost_check;
+        if (write_checked(HTR_R_COMMAND, &command, 1U) != 0) { xport_fail(now); goto lost_check; }
     }
     s_last_ok = now;
-    s_coproc_type = m[HTR_R_HEATER_TYPE];
-    s_t.cmd_result = m[HTR_R_CMD_RESULT];
-    decode_status(m);
-    /* A coprocessor FAULT latches our request off: a later coprocessor reset or
-       CLEAR_FAULT must never re-ignite on a stale ON. A new ON write re-arms. */
-    if (s_t.phase == HTR_PHASE_FAULT) s_request = 0U;
     goto publish;
 
 lost_check:
-    if ((uint32_t)(now - s_last_ok) >= HEATER_LOST_MS) {
-        s_identified = 0U;                    /* re-identify; optional hard reset */
+    if (s_ever_identified && (uint32_t)(now - s_last_ok) >= HEATER_LOST_MS) {
+        close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
         s_last_ok = now;
         if (s_reset != NULL) s_reset();
     }
 publish:
     s_t.present = s_identified;
+    s_t.flags = (uint16_t)((s_t.flags & ~(HEATER_FLAG_MAP_MISMATCH | HEATER_FLAG_MAP_UNREADABLE)) |
+                          s_map_fault);
     s_t.target_level = s_level;
     s_t.transport_errors = sat16(s_xport_errors);
     if (s_xport_seen && ((uint32_t)(now - s_last_xport) <= HEATER_XPORT_STICKY_MS)) {
@@ -169,11 +245,12 @@ publish:
     }
     if (s_identified == 0U) {
         s_t.flags &= (uint16_t)~(HEATER_FLAG_FRESH | HEATER_FLAG_SAFE_OFF);
-        if (s_request) s_t.flags |= HEATER_FLAG_COMMS_FAULT;
+        if (s_map_fault == HEATER_FLAG_MAP_MISMATCH || s_ever_identified)
+            s_t.flags |= HEATER_FLAG_COMMS_FAULT;
     }
 }
 
-void    heater_set_request(uint8_t on) { s_request = (on != 0U) ? 1U : 0U; }
+void    heater_set_request(uint8_t on) { s_request = (on != 0U && s_map_fault == 0U) ? 1U : 0U; }
 uint8_t heater_get_request(void) { return s_request; }
 void    heater_set_level(uint8_t level) { if ((level >= 1U) && (level <= 10U)) s_level = level; }
 uint8_t heater_get_level(void) { return s_level; }
@@ -195,6 +272,7 @@ void    heater_set_ambient_f(int16_t deg_f)
 bool heater_send_command(uint8_t cmd)
 {
     if ((cmd < HTR_CMD_START) || (cmd > HTR_CMD_AUTO_DETECT)) return false;
+    if (cmd == HTR_CMD_START && s_map_fault != 0U) return false;
     s_cmd_pending = cmd;
     return true;
 }

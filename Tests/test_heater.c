@@ -33,7 +33,7 @@ void test_wrong_device_is_absent_and_never_written(void){
     TEST_ASSERT_TRUE(tel().flags & HEATER_FLAG_COMMS_FAULT);
 }
 void test_unknown_map_version_is_not_controlled(void){
-    c.regs[HTR_R_MAP_VERSION] = 2;
+    c.regs[HTR_R_MAP_VERSION] = HEATER_EXPECTED_MAP_VERSION == 1 ? 2 : 1;
     run_to(5000);
     TEST_ASSERT_FALSE(tel().present);
     TEST_ASSERT_EQUAL(0u, c.writes);
@@ -158,7 +158,74 @@ void test_ambiguous_command_delivery_is_not_replayed_on_later_poll(void) {
     TEST_ASSERT_EQUAL_UINT8(0,c.regs[HTR_R_COMMAND]);
     TEST_ASSERT_TRUE(tel().transport_errors>0);
 }
+static uint32_t epoch;
+static uint32_t recovery_epoch(void) { return epoch; }
+
+static void test_version_read_failure_drops_start(void)
+{
+    run_to(500);
+    heater_set_request(1);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    c.fail_identity = true;
+    unsigned writes = c.writes;
+    run_to(750);
+    TEST_ASSERT_EQUAL_UINT(writes, c.writes);
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_MAP_UNREADABLE, tel().flags);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_FALSE(heater_send_command(HTR_CMD_START));
+    c.fail_identity = false;
+    run_to(2200);
+    TEST_ASSERT_TRUE(tel().present);
+    TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+}
+
+static void test_recovery_requires_new_identity_before_any_write(void)
+{
+    epoch = 0;
+    heater_set_recovery_epoch(recovery_epoch);
+    run_to(500);
+    heater_set_request(1);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    unsigned writes = c.writes;
+    unsigned reads = c.reads;
+    ++epoch;
+    run_to(510);
+    TEST_ASSERT_TRUE(c.reads > reads);
+    TEST_ASSERT_EQUAL_UINT(writes, c.writes);
+    run_to(1000);
+    TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+}
+
+static void test_reflash_mismatch_and_matching_reset_drop_start(void)
+{
+    run_to(500);
+    heater_set_request(1);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    heater_set_type_select(2);
+    c.regs[HTR_R_MAP_VERSION] = HEATER_EXPECTED_MAP_VERSION == 1 ? 2 : 1;
+    unsigned writes = c.writes;
+    run_to(1000);
+    TEST_ASSERT_EQUAL_UINT(writes, c.writes);
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_MAP_MISMATCH, tel().flags);
+    c.regs[HTR_R_MAP_VERSION] = HEATER_EXPECTED_MAP_VERSION;
+    run_to(2200);
+    TEST_ASSERT_TRUE(tel().present);
+    TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    heater_set_request(1);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    c.regs[HTR_R_PHASE] = HTR_PHASE_DETECTING;
+    run_to(2600);
+    TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+}
+
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_version_read_failure_drops_start);
+    RUN_TEST(test_recovery_requires_new_identity_before_any_write);
+    RUN_TEST(test_reflash_mismatch_and_matching_reset_drop_start);
     RUN_TEST(test_ambiguous_command_delivery_is_not_replayed_on_later_poll);
     RUN_TEST(test_fault_latches_request_off);
     RUN_TEST(test_command_forwarded_once_and_result_read_back);

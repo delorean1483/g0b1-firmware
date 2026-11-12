@@ -11,6 +11,7 @@ typedef struct {
     i2c_backend_t api;
     uint8_t regs[FAKE_COPROC_REGS];
     bool fail;
+    bool fail_identity;
     bool fail_command_after_accept;
     unsigned command_writes;
     unsigned reads, writes;

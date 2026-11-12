@@ -255,6 +255,7 @@ void app_main(void)
      * wired yet (spec open item 6), so no reset hook. */
     drv_i2c2_init();
     heater_init(drv_heater_i2c2_backend(), NULL, HAL_GetTick());
+    heater_set_recovery_epoch(drv_i2c2_recovery_epoch);
     rgb_init(drv_rgb_i2c2_backend(), HAL_GetTick());
     rgb_set_bus_snapshot(drv_i2c2_snapshot);
 
