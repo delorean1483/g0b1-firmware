@@ -1,6 +1,7 @@
 #include "fake_coproc_bus.h"
 #include "heater.h"
 #include "htr_i2c_map.h"
+#include "htr_types.h"
 #include <string.h>
 
 static int fc_read(void *ctx, uint8_t reg, uint8_t *buf, uint16_t len)
@@ -23,6 +24,9 @@ static int fc_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len)
     for (i = 0; i < len; i++) if ((reg + i) < FAKE_COPROC_REGS) f->regs[reg + i] = buf[i];
     if (reg == HTR_R_RUN_REQUEST && buf[0] == 0U)
         f->regs[HTR_R_FLAGS + 1U] |= (uint8_t)(HTR_F_START_ARMED >> 8);
+    if (reg == HTR_R_RUN_REQUEST && len == 1U && buf[0] == 0U &&
+        f->regs[HTR_R_MAP_VERSION] == 1U && f->regs[HTR_R_PHASE] == HTR_PHASE_RUNNING)
+        f->regs[HTR_R_PHASE] = HTR_PHASE_COOLDOWN;
     if (reg == HTR_R_COMMAND && len != 0U) {
         f->command_writes++;
         if (f->fail_command_after_accept) return -1;

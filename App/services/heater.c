@@ -232,6 +232,25 @@ void heater_note_cortex_traffic(uint32_t now)
     s_cortex_at = now;
 }
 
+/* Known v1 and v2 maps share this one safe write. Never use a cached
+   identity after bus recovery, and leave the normal write gate closed. */
+static void stop_mismatched_coproc(uint32_t now, uint8_t map)
+{
+    if (map != 1U && map != 2U) return;
+    uint8_t actual;
+    if (s_bus->read(s_bus->ctx, HTR_R_RUN_REQUEST, &actual, 1U) != 0) {
+        xport_fail(now);
+        return;
+    }
+    if (recovery_changed() || actual == 0U) return;
+    const uint8_t off = 0U;
+    if (s_bus->write(s_bus->ctx, HTR_R_RUN_REQUEST, &off, 1U) != 0 ||
+        recovery_changed() ||
+        s_bus->read(s_bus->ctx, HTR_R_RUN_REQUEST, &actual, 1U) != 0 ||
+        recovery_changed() || actual != 0U)
+        xport_fail(now);
+}
+
 static bool check_map(uint32_t now)
 {
     uint8_t id[2];
@@ -244,6 +263,7 @@ static bool check_map(uint32_t now)
     s_checked_epoch = s_recovery_epoch ? s_recovery_epoch() : 0U;
     if (id[0] != HTR_DEVICE_ID || id[1] != HEATER_EXPECTED_MAP_VERSION) {
         close_write_gate(HEATER_FLAG_MAP_MISMATCH);
+        if (id[0] == HTR_DEVICE_ID) stop_mismatched_coproc(now, id[1]);
         return false;
     }
     s_identified = s_ever_identified = 1U;

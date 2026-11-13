@@ -242,6 +242,32 @@ static void test_reflash_mismatch_and_matching_reset_drop_start(void)
 
 static uint32_t mock_poll_clock(void) { return now + 6U; }
 
+static void test_map_mismatch_stops_running_v1_only(void)
+{
+    c.regs[HTR_R_MAP_VERSION] = 3U;
+    c.regs[HTR_R_RUN_REQUEST] = 1U;
+    c.regs[HTR_R_PHASE] = HTR_PHASE_RUNNING;
+    run_to(1000);
+    TEST_ASSERT_EQUAL_UINT(0, c.writes);
+
+    c.regs[HTR_R_MAP_VERSION] = 1U;
+    c.regs[HTR_R_DEVICE_ID] = 0xFFU;
+    run_to(2000);
+    TEST_ASSERT_EQUAL_UINT(0, c.writes);
+
+    c.regs[HTR_R_DEVICE_ID] = HTR_DEVICE_ID;
+    run_to(3000);
+    TEST_ASSERT_EQUAL_UINT(1, c.writes);
+    TEST_ASSERT_EQUAL_UINT8(HTR_R_RUN_REQUEST, c.last_write_reg);
+    TEST_ASSERT_EQUAL_UINT16(1, c.last_write_len);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_COOLDOWN, c.regs[HTR_R_PHASE]);
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_MAP_MISMATCH, tel().flags);
+    TEST_ASSERT_FALSE(heater_set_request(1));
+    run_to(4200);
+    TEST_ASSERT_EQUAL_UINT(1, c.writes);
+}
+
 static void test_silence_quiets_v1_bus_and_requires_fresh_start(void)
 {
     run_to(500);
@@ -334,6 +360,8 @@ int main(void){ UNITY_BEGIN();
     RUN_TEST(test_version_read_failure_drops_start);
     RUN_TEST(test_recovery_requires_new_identity_before_any_write);
     RUN_TEST(test_reflash_mismatch_and_matching_reset_drop_start);
+    if (HEATER_EXPECTED_MAP_VERSION == 2U)
+        RUN_TEST(test_map_mismatch_stops_running_v1_only);
     RUN_TEST(test_ambiguous_command_delivery_is_not_replayed_on_later_poll);
     RUN_TEST(test_fault_latches_request_off);
     RUN_TEST(test_command_forwarded_once_and_result_read_back);
