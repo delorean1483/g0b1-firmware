@@ -47,6 +47,19 @@ typedef struct {
 #define HEATER_FLAG_MAP_MISMATCH   (1U << 5) /* identity/version incompatible, writes blocked */
 #define HEATER_FLAG_MAP_UNREADABLE (1U << 6) /* identity unverified, writes blocked */
 
+#define HEATER_CORTEX_FRESH_MS 5000U
+/* Seven words per poll: sequence, due lo/hi, start lo/hi, duration ms, flags.
+   Valid gap is measured between completed status polls, in milliseconds. */
+#define HEATER_POLL_VALID_STATUS (1U << 0)
+#define HEATER_POLL_WRITE_FAILED (1U << 1)
+#define HEATER_POLL_RECOVERY     (1U << 2)
+#define HEATER_POLL_LOG_BASE 2016U
+#define HEATER_POLL_LOG_WORDS 7U
+#define HEATER_POLL_LOG_SLOTS 16U
+#define HEATER_POLL_LOG_END 2127U
+#define HEATER_POLL_LOG_HEAD 2128U
+#define HEATER_POLL_MAX_GAP_LO 2129U
+#define HEATER_POLL_MAX_GAP_HI 2130U
 #define HEATER_POLL_MS          250U
 #define HEATER_IDENT_RETRY_MS  1000U
 #define HEATER_LOST_MS         5000U
@@ -55,6 +68,9 @@ typedef struct {
 /* reset_coproc may be NULL (no nRST GPIO wired). Never blocks boot. */
 void    heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t now);
 void    heater_set_recovery_epoch(uint32_t (*epoch)(void));
+void heater_note_cortex_traffic(uint32_t now);
+void heater_set_poll_clock(uint32_t (*clock_ms)(void));
+uint16_t heater_poll_diagnostic(uint16_t reg);
 void    heater_process(uint32_t now);
 void    heater_set_request(uint8_t on);
 uint8_t heater_get_request(void);

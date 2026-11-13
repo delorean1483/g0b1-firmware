@@ -56,7 +56,7 @@ static void test_telemetry_mirrors_coprocessor(void) {
     c.regs[HTR_R_PHASE] = HTR_PHASE_RUNNING; c.regs[HTR_R_ACTIVE_TYPE] = HTR_TYPE_VEVOR;
     c.regs[HTR_R_ACTIVE_LEVEL] = 4; c.regs[HTR_R_SUPPLY_MV] = 0x38; c.regs[HTR_R_SUPPLY_MV+1] = 0x31; /* 12600 */
     c.regs[HTR_R_VENDOR_STATE] = 3; c.regs[HTR_R_CAPS] = HTR_CAP_LEVEL;
-    for (uint32_t t = 0; t <= 1500; t += 10) heater_process(t);
+    for (uint32_t t = 0; t <= 1500; t += 10) { heater_note_cortex_traffic(t); heater_process(t); }
     uint16_t v;
     mb_reg_read(55U, &v); TEST_ASSERT_EQUAL_UINT16(3U, v);
     mb_reg_read(56U, &v); TEST_ASSERT_EQUAL_UINT16(4U, v);

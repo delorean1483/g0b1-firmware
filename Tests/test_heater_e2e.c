@@ -13,6 +13,7 @@
 static fake_gpio_t g; static fake_uart_t u3, u4;
 static const htr_driver_t *const drvs[] = { &fake_drv[0], &fake_drv[1] };
 static uint32_t now;
+static bool cortex_live;
 
 /* Mem_Write = START addr+W, ptr, data..., STOP. Mem_Read = START addr+W, ptr,
    RESTART addr+R, data..., STOP (no STOP between the two phases). */
@@ -29,13 +30,14 @@ static const i2c_backend_t bridge = { br_read, br_write, 0 };
 static void both_to(uint32_t t){
     for(; now < t; now += 10U){
         htr_regs_poll(now); htr_fsm_process(now); htr_regs_publish(now, 0);
+        if (cortex_live) heater_note_cortex_traffic(now);
         heater_process(now);
     }
 }
 static heater_telemetry_t tel(void){ heater_telemetry_t t; heater_get_telemetry(&t); return t; }
 
 void setUp(void){
-    fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4); now = 0;
+    fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4); now = 0; cortex_live = true;
     g.high_pct[HTR_WIRING_3W] = 100; fake_ctx[0].probe_answer = HTR_PROBE_FOUND;
     htr_regs_cfg_t rc = { 0, HTR_HW_ID_EF_L011, (1u<<1)|(1u<<2), 0, 0 };
     uint8_t type = htr_regs_init(&rc, now);
@@ -67,7 +69,7 @@ void test_full_chain_detect_start_run_stop_cooldown(void){
     TEST_ASSERT_EQUAL_UINT8(0, tel().state);
     TEST_ASSERT_TRUE(tel().flags & HEATER_FLAG_SAFE_OFF);
 }
-void test_g0b1_rewriting_run_keeps_host_timeout_alive(void){
+void test_fresh_cortex_traffic_keeps_v1_watchdog_alive(void){
     both_to(7000); heater_set_request(1); both_to(7600);   /* request reaches the coprocessor first */
     fake_ctx[0].hint = HTR_HINT_RUNNING;
     both_to(7000 + 15u * 60000u);                             /* 15 min > default 10 min timeout */
@@ -88,9 +90,20 @@ void test_fault_then_clear_from_g0b1_does_not_reignite(void){
     heater_set_request(1); both_to(15600);
     TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
 }
+void test_cortex_silence_expires_v1_watchdog(void)
+{
+    both_to(7000); heater_set_request(1); both_to(7600);
+    fake_ctx[0].hint = HTR_HINT_RUNNING;
+    cortex_live = false;
+    both_to(7000 + 15u * 60000u);
+    TEST_ASSERT_EQUAL_UINT(1, fake_ctx[0].stops);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+}
+
 int main(void){ UNITY_BEGIN();
     RUN_TEST(test_fault_then_clear_from_g0b1_does_not_reignite);
 
     RUN_TEST(test_full_chain_detect_start_run_stop_cooldown);
-    RUN_TEST(test_g0b1_rewriting_run_keeps_host_timeout_alive);
+    RUN_TEST(test_cortex_silence_expires_v1_watchdog);
+    RUN_TEST(test_fresh_cortex_traffic_keeps_v1_watchdog_alive);
     return UNITY_END(); }

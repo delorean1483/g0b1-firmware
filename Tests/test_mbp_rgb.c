@@ -127,7 +127,7 @@ static void test_status_read_only(void)
 static void test_past_max_unbound(void)
 {
     uint16_t v;
-    TEST_ASSERT_EQUAL_UINT(RGB_RETRY_LOG_END, MB_REG_MAX);
+    TEST_ASSERT_TRUE(RGB_RETRY_LOG_END <= MB_REG_MAX);
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_read(MB_REG_MAX + 1U, &v));
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(90U, &v));
     TEST_ASSERT_EQUAL_UINT16(rgb_get_diagnostic(90), v);

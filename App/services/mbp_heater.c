@@ -40,6 +40,12 @@ static modbus_exc_t wr_command(uint16_t reg, uint16_t v) {
     return MB_EXC_NONE;
 }
 
+static modbus_exc_t rd_poll_log(uint16_t reg, uint16_t *value)
+{
+    *value = heater_poll_diagnostic(reg);
+    return MB_EXC_NONE;
+}
+
 /* Read-only telemetry: one tiny reader per register. */
 #define RO(name, expr) \
     static modbus_exc_t name(uint16_t reg, uint16_t *o) { heater_telemetry_t t = tel(); (void)reg; *o = (uint16_t)(expr); return MB_EXC_NONE; }
@@ -74,6 +80,8 @@ void mbp_heater_register(void) {
     mb_reg_bind(61, rd_exchanger_raw,     0);
     mb_reg_bind(62, rd_state_seconds,     0);
     mb_reg_bind(63, rd_age_ms,            0);
+    for (uint16_t reg = HEATER_POLL_LOG_BASE; reg <= HEATER_POLL_MAX_GAP_HI; ++reg)
+        mb_reg_bind(reg, rd_poll_log, 0);
     mb_reg_bind(64, rd_flags,             0);
     mb_reg_bind(65, rd_valid_frames,      0);
     mb_reg_bind(66, rd_checksum_failures, 0);

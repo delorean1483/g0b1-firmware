@@ -7,14 +7,22 @@
 
 static fake_coproc_t c;
 static uint32_t now;
-static void run_to(uint32_t t){ while((int32_t)(t - now) > 0){ heater_process(now); now += 10U; } heater_process(now); }
+static bool cortex_live;
+static void process(void) {
+    if (cortex_live) heater_note_cortex_traffic(now);
+    heater_process(now);
+}
+static void run_to(uint32_t t) {
+    while ((int32_t)(t - now) > 0) { process(); now += 10U; }
+    process();
+}
 static heater_telemetry_t tel(void){ heater_telemetry_t t; heater_get_telemetry(&t); return t; }
 static void put16(uint8_t r, uint16_t v){ c.regs[r]=(uint8_t)v; c.regs[r+1]=(uint8_t)(v>>8); }
 
-void setUp(void){ fake_coproc_init(&c); now = 0; heater_init(&c.api, NULL, now); }
+void setUp(void){ fake_coproc_init(&c); now = 0; cortex_live = true; heater_init(&c.api, NULL, now); }
 void tearDown(void){}
 
-void test_identifies_then_writes_control_block_every_250ms(void){
+void test_identifies_then_writes_only_changed_control(void){
     heater_set_request(1); heater_set_level(6); heater_set_setpoint_c(22); heater_set_ambient_f(77);
     run_to(1000);
     TEST_ASSERT_TRUE(tel().present);
@@ -23,7 +31,12 @@ void test_identifies_then_writes_control_block_every_250ms(void){
     TEST_ASSERT_EQUAL_INT8(22, (int8_t)c.regs[HTR_R_SETPOINT_C]);
     TEST_ASSERT_EQUAL_HEX16(250, (uint16_t)(c.regs[HTR_R_AMBIENT_C_X10] | (c.regs[HTR_R_AMBIENT_C_X10+1] << 8))); /* 77F = 25.0C */
     unsigned w = c.writes; run_to(2000);
-    TEST_ASSERT_TRUE(c.writes - w >= 3 && c.writes - w <= 5);
+    TEST_ASSERT_EQUAL_UINT(w, c.writes);
+    c.regs[HTR_R_LEVEL] = 2;
+    run_to(2300);
+    TEST_ASSERT_EQUAL_UINT(w + 1, c.writes);
+    TEST_ASSERT_EQUAL_UINT8(6, c.regs[HTR_R_LEVEL]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_R_LEVEL, c.last_write_reg);
 }
 void test_wrong_device_is_absent_and_never_written(void){
     c.regs[HTR_R_DEVICE_ID] = 0x12;
@@ -171,13 +184,13 @@ static void test_version_read_failure_drops_start(void)
     run_to(750);
     TEST_ASSERT_EQUAL_UINT(writes, c.writes);
     TEST_ASSERT_BITS_HIGH(HEATER_FLAG_MAP_UNREADABLE, tel().flags);
-    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_EQUAL_UINT8(1, heater_get_request());
     TEST_ASSERT_FALSE(heater_send_command(HTR_CMD_START));
     c.fail_identity = false;
     run_to(2200);
     TEST_ASSERT_TRUE(tel().present);
     TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
-    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
 }
 
 static void test_recovery_requires_new_identity_before_any_write(void)
@@ -186,16 +199,19 @@ static void test_recovery_requires_new_identity_before_any_write(void)
     heater_set_recovery_epoch(recovery_epoch);
     run_to(500);
     heater_set_request(1);
+    run_to(750);
     TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
     unsigned writes = c.writes;
     unsigned reads = c.reads;
     ++epoch;
-    run_to(510);
+    run_to(760);
     TEST_ASSERT_TRUE(c.reads > reads);
     TEST_ASSERT_EQUAL_UINT(writes, c.writes);
-    run_to(1000);
+    TEST_ASSERT_EQUAL_UINT8(1, heater_get_request());
+    TEST_ASSERT_BITS_LOW(HEATER_FLAG_MAP_UNREADABLE | HEATER_FLAG_COMMS_FAULT, tel().flags);
+    run_to(1250);
     TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
-    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
 }
 
 static void test_reflash_mismatch_and_matching_reset_drop_start(void)
@@ -222,7 +238,50 @@ static void test_reflash_mismatch_and_matching_reset_drop_start(void)
     TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
 }
 
+static uint32_t mock_poll_clock(void) { return now + 6U; }
+
+static void test_silence_quiets_v1_bus_and_requires_fresh_start(void)
+{
+    run_to(500);
+    heater_set_request(1);
+    run_to(750);
+    cortex_live = false;
+    run_to(5750);
+    unsigned reads = c.reads;
+    unsigned writes = c.writes;
+    run_to(8000);
+    TEST_ASSERT_EQUAL_UINT(reads, c.reads);
+    TEST_ASSERT_EQUAL_UINT(writes, c.writes);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    heater_set_request(1);
+    TEST_ASSERT_FALSE(heater_send_command(HTR_CMD_START));
+    cortex_live = true;
+    run_to(8500);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    run_to(9000);
+    heater_set_request(1);
+    run_to(9250);
+    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+}
+
+static void test_poll_log_tracks_due_start_duration_and_valid_gap(void)
+{
+    heater_set_poll_clock(mock_poll_clock);
+    run_to(500);
+    now = 900;
+    process();
+    uint16_t head = heater_poll_diagnostic(HEATER_POLL_LOG_HEAD);
+    uint16_t entry = HEATER_POLL_LOG_BASE + (head - 1U) * HEATER_POLL_LOG_WORDS;
+    TEST_ASSERT_EQUAL_UINT16(750, heater_poll_diagnostic(entry + 1U));
+    TEST_ASSERT_EQUAL_UINT16(900, heater_poll_diagnostic(entry + 3U));
+    TEST_ASSERT_EQUAL_UINT16(6, heater_poll_diagnostic(entry + 5U));
+    TEST_ASSERT_EQUAL_UINT16(1, heater_poll_diagnostic(entry + 6U));
+    TEST_ASSERT_EQUAL_UINT16(400, heater_poll_diagnostic(HEATER_POLL_MAX_GAP_LO));
+}
+
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_silence_quiets_v1_bus_and_requires_fresh_start);
+    RUN_TEST(test_poll_log_tracks_due_start_duration_and_valid_gap);
     RUN_TEST(test_version_read_failure_drops_start);
     RUN_TEST(test_recovery_requires_new_identity_before_any_write);
     RUN_TEST(test_reflash_mismatch_and_matching_reset_drop_start);
@@ -231,7 +290,7 @@ int main(void){ UNITY_BEGIN();
     RUN_TEST(test_command_forwarded_once_and_result_read_back);
 
     RUN_TEST(test_no_coprocessor_at_boot);
-    RUN_TEST(test_identifies_then_writes_control_block_every_250ms);
+    RUN_TEST(test_identifies_then_writes_only_changed_control);
     RUN_TEST(test_wrong_device_is_absent_and_never_written);
     RUN_TEST(test_unknown_map_version_is_not_controlled);
     RUN_TEST(test_status_decodes_into_legacy_and_new_fields);
