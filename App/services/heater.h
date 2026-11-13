@@ -58,7 +58,11 @@ typedef struct {
 #define HEATER_BENCH_REG 2131U
 bool heater_bench_arm(uint16_t mode);
 uint16_t heater_bench_pending(void);
-bool heater_bench_take_midbyte(void);
+uint16_t heater_bench_take_midbyte(void);
+void heater_bench_log_midbyte(uint16_t mode, bool edge_seen);
+#define HEATER_POLL_ABORT_HIGH        (1U << 3)
+#define HEATER_POLL_ABORT_LOW         (1U << 4)
+#define HEATER_POLL_ABORT_EDGE_MISSED (1U << 5)
 #endif
 #define HEATER_POLL_LOG_BASE 2016U
 #define HEATER_POLL_LOG_WORDS 7U

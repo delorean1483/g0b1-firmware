@@ -349,8 +349,65 @@ static void test_unarmed_on_sets_operator_feedback(void)
     TEST_ASSERT_BITS_LOW(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
 }
 
+static void test_recovery_holds_fresh_on_until_armed_status(void)
+{
+    epoch = 0;
+    heater_set_recovery_epoch(recovery_epoch);
+    run_to(500);
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_CLEAR_FAULT));
+    ++epoch;
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    run_to(1000);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
+}
+
+static void test_recovery_rejects_held_on_when_unarmed(void)
+{
+    epoch = 0;
+    heater_set_recovery_epoch(recovery_epoch);
+    run_to(500);
+    put16(HTR_R_FLAGS, 0);
+    ++epoch;
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    run_to(1000);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+}
+
+#ifdef HEATER_BENCH_FAULTS
+static void test_scl_low_hook_is_one_shot_and_logs_edge(void)
+{
+    TEST_ASSERT_TRUE(heater_bench_arm(4));
+    TEST_ASSERT_FALSE(heater_bench_arm(1));
+    TEST_ASSERT_EQUAL_UINT16(0, heater_bench_take_midbyte());
+    TEST_ASSERT_EQUAL_UINT16(4, heater_bench_pending());
+    heater_set_level(6);
+    run_to(250);
+    TEST_ASSERT_EQUAL_UINT16(4, c.midbyte_mode);
+    TEST_ASSERT_EQUAL_UINT16(0, heater_bench_pending());
+    uint16_t flags = 0;
+    for (unsigned slot = 0; slot < HEATER_POLL_LOG_SLOTS; ++slot)
+        flags |= heater_poll_diagnostic(HEATER_POLL_LOG_BASE + slot * HEATER_POLL_LOG_WORDS + 6);
+    TEST_ASSERT_BITS_HIGH(HEATER_POLL_ABORT_LOW, flags);
+    TEST_ASSERT_BITS_LOW(HEATER_POLL_ABORT_HIGH | HEATER_POLL_ABORT_EDGE_MISSED, flags);
+    TEST_ASSERT_EQUAL_UINT8(7, c.regs[HTR_R_LEVEL]);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+    run_to(750);
+    TEST_ASSERT_EQUAL_UINT8(6, c.regs[HTR_R_LEVEL]);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+}
+#endif
+
 int main(void){ UNITY_BEGIN();
     RUN_TEST(test_unarmed_on_sets_operator_feedback);
+    RUN_TEST(test_recovery_holds_fresh_on_until_armed_status);
+    RUN_TEST(test_recovery_rejects_held_on_when_unarmed);
+#ifdef HEATER_BENCH_FAULTS
+    RUN_TEST(test_scl_low_hook_is_one_shot_and_logs_edge);
+#endif
 #ifdef HTR_F_START_REFUSED
     RUN_TEST(test_start_refusal_clears_run_without_reasserting);
 #endif

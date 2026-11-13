@@ -3,6 +3,7 @@
 #ifdef HEATER_BENCH_FAULTS
 #include "heater.h"
 static bool s_bench_abort;
+static unsigned s_bench_fill_clocks;
 #endif
 #include "main.h"
 #include "mb_regmodel.h"
@@ -203,11 +204,20 @@ static int recover_bus(void)
     /* PE off releases a clock held by the master; DeInit clears HAL state.
      * Neither slave nor the MCU is reset. */
     __HAL_I2C_DISABLE(&hi2c2);
-    (void)HAL_I2C_DeInit(&hi2c2);
+#ifdef HEATER_BENCH_FAULTS
+    if (!s_bench_fill_clocks)
+#endif
+        (void)HAL_I2C_DeInit(&hi2c2);
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
-    /* Preload high before switching modes: all highs are open-drain releases. */
+    /* Preload the open-drain latches before switching modes. */
+#ifdef HEATER_BENCH_FAULTS
+    unsigned fill_clocks = s_bench_fill_clocks;
+    s_bench_fill_clocks = 0;
+    HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, fill_clocks ? GPIO_PIN_RESET : GPIO_PIN_SET);
+#else
     HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_SET);
+#endif
     HAL_GPIO_WritePin(SDA_PORT, SDA_PIN, GPIO_PIN_SET);
     gpio.Mode = GPIO_MODE_OUTPUT_OD;
     gpio.Pull = GPIO_NOPULL;
@@ -216,6 +226,29 @@ static int recover_bus(void)
     HAL_GPIO_Init(SCL_PORT, &gpio);
     gpio.Pin = SDA_PIN;
     HAL_GPIO_Init(SDA_PORT, &gpio);
+#ifdef HEATER_BENCH_FAULTS
+    if (fill_clocks) {
+        /* SDA stays released for the remaining data bits and ACK. */
+        for (unsigned i = 0; i < fill_clocks; ++i) {
+            HAL_Delay(1);
+            HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_SET);
+            if (wait_scl_high() != 0) break;
+            HAL_Delay(1);
+            HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_RESET);
+        }
+        /* Complete with a STOP while the slave is still in this transfer. */
+        HAL_GPIO_WritePin(SDA_PORT, SDA_PIN, GPIO_PIN_RESET);
+        HAL_Delay(1);
+        HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_SET);
+        if (wait_scl_high() == 0) {
+            HAL_Delay(1);
+            HAL_GPIO_WritePin(SDA_PORT, SDA_PIN, GPIO_PIN_SET);
+            HAL_Delay(1);
+            clear = line_levels() == 3u;
+        }
+    } else
+#endif
+    {
     HAL_Delay(1);
     if (line_levels() == 3u) {
         clear = refresh_idle_lines();
@@ -244,10 +277,14 @@ static int recover_bus(void)
             }
         }
     }
+    }
     /* Always release outputs and restore AF/HAL even for a physical short.
      * Reset only I2C2's peripheral registers to clear stale BUSY/errors. */
     HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_SET);
     HAL_GPIO_WritePin(SDA_PORT, SDA_PIN, GPIO_PIN_SET);
+#ifdef HEATER_BENCH_FAULTS
+    if (fill_clocks) (void)HAL_I2C_DeInit(&hi2c2);
+#endif
     __HAL_RCC_I2C2_CLK_ENABLE();
     __HAL_RCC_I2C2_FORCE_RESET();
     __HAL_RCC_I2C2_RELEASE_RESET();
@@ -274,15 +311,35 @@ static int recover_with_cooldown(void)
 #ifdef HEATER_BENCH_FAULTS
 int i2c_heater_bench_abort(void *handle)
 {
-    if (handle != &hi2c2 || !heater_bench_take_midbyte()) return 0;
+    if (handle != &hi2c2) return 0;
+    uint16_t mode = heater_bench_take_midbyte();
+    if (mode == 0u) return 0;
     /* Count SCL transitions immediately after queueing the first data byte.
        Bound the wait in case the slave stretches or the bus is already stuck. */
     uint32_t prior = SCL_PORT->IDR & SCL_PIN;
     unsigned rises = 0;
-    for (unsigned budget = 0; budget < 1200U && rises < 3U; ++budget) {
+    const unsigned target_rises = mode == 4u ? 6u : 3u;
+    bool edge_seen = false;
+    for (unsigned budget = 0; budget < 1200U; ++budget) {
         uint32_t current = SCL_PORT->IDR & SCL_PIN;
         if (current && !prior) ++rises;
+        if (rises == target_rises && (mode == 4U ? !current : current)) {
+            edge_seen = true;
+            break;
+        }
         prior = current;
+    }
+    heater_bench_log_midbyte(mode, edge_seen);
+    if (!edge_seen) return 0;
+    if (mode == 4U) {
+        /* Take over the low clock before disabling I2C so it cannot rise
+           early while the peripheral releases SDA. */
+        GPIO_InitTypeDef gpio = {0};
+        gpio.Pin = SCL_PIN;
+        gpio.Mode = GPIO_MODE_OUTPUT_OD;
+        HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_RESET);
+        HAL_GPIO_Init(SCL_PORT, &gpio);
+        s_bench_fill_clocks = 3u; /* two data bits and the ACK clock */
     }
     __HAL_I2C_DISABLE(&hi2c2);
     s_bench_abort = true;

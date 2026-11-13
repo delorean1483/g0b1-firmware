@@ -18,6 +18,9 @@ typedef struct {
     unsigned reads, writes;
     uint8_t last_write_reg;
     uint16_t last_write_len;
+#ifdef HEATER_BENCH_FAULTS
+    uint16_t midbyte_mode;
+#endif
 } fake_coproc_t;
 
 /* Identity bytes preloaded (DEVICE_ID 0xEF, MAP_VERSION = HTR_MAP_VERSION). */

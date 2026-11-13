@@ -6,18 +6,19 @@
 static const i2c_backend_t *s_bus;
 static void (*s_reset)(void);
 static uint8_t s_request;
+static bool s_on_held;
 static bool s_start_unconfirmed, s_request_again, s_start_expired, s_start_armed;
 static uint32_t s_start_at;
 #ifdef HEATER_BENCH_FAULTS
-/* 1 interrupts the next settings write, 2 masks a delivered START,
-   3 starts one bounded heartbeat freeze. */
-static uint16_t s_bench_mode;
+/* 1 aborts on SCL high, 2 masks a delivered START, 3 freezes heartbeat,
+   4 aborts after the falling SCL edge and clocks out the partial byte. */
+static uint16_t s_bench_mode, s_bench_poll_flags;
 static bool s_midbyte_target, s_freeze_active;
 static uint32_t s_freeze_at;
 
 bool heater_bench_arm(uint16_t mode)
 {
-    if (mode > 3U || (mode && (s_bench_mode || s_freeze_active))) return false;
+    if (mode > 4U || (mode && (s_bench_mode || s_freeze_active))) return false;
     s_bench_mode = mode;
     s_freeze_active = false;
     return true;
@@ -25,11 +26,18 @@ bool heater_bench_arm(uint16_t mode)
 
 uint16_t heater_bench_pending(void) { return s_bench_mode; }
 
-bool heater_bench_take_midbyte(void)
+uint16_t heater_bench_take_midbyte(void)
 {
-    if (!s_midbyte_target || s_bench_mode != 1U) return false;
+    if (!s_midbyte_target || (s_bench_mode != 1U && s_bench_mode != 4U)) return 0U;
+    uint16_t mode = s_bench_mode;
     s_bench_mode = 0U;
-    return true;
+    return mode;
+}
+
+void heater_bench_log_midbyte(uint16_t mode, bool edge_seen)
+{
+    s_bench_poll_flags |= mode == 4U ? HEATER_POLL_ABORT_LOW : HEATER_POLL_ABORT_HIGH;
+    if (!edge_seen) s_bench_poll_flags |= HEATER_POLL_ABORT_EDGE_MISSED;
 }
 #endif
 static bool s_cortex_seen, s_silence_stop, s_cortex_silent;
@@ -100,7 +108,7 @@ void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t 
 {
     s_bus = bus;
 #ifdef HEATER_BENCH_FAULTS
-    s_bench_mode = 0U;
+    s_bench_mode = s_bench_poll_flags = 0U;
     s_midbyte_target = s_freeze_active = false;
 #endif
     s_cortex_seen = s_silence_stop = s_cortex_silent = false;
@@ -115,6 +123,7 @@ void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t 
     memset(s_poll_log, 0, sizeof s_poll_log);
     s_reset = reset_coproc;
     s_request = 0U;
+    s_on_held = false;
     s_level = 1U;
     s_setpoint = 20;
     s_ambient_x10 = HTR_AMBIENT_UNKNOWN;
@@ -200,6 +209,8 @@ static void close_write_gate(uint16_t fault)
     s_status_seen = false;
     s_map_fault = fault;
     if (fault == HEATER_FLAG_MAP_MISMATCH) {
+        if (s_on_held) s_request_again = true;
+        s_on_held = false;
         s_request = 0U;
         s_start_unconfirmed = s_start_expired = false;
     }
@@ -217,6 +228,7 @@ static void latch_cortex_silence(void)
     s_silence_attempts = HEATER_SILENCE_STOP_ATTEMPTS;
     s_silence_verify = false;
     s_request = 0U;
+    s_on_held = false;
     s_cmd_pending = 0U;
     s_type_pending = 0U;
     s_identified = 0U;
@@ -375,6 +387,8 @@ void heater_process(uint32_t now)
         ((m[HTR_R_PHASE] == HTR_PHASE_DETECTING && s_t.phase != HTR_PHASE_DETECTING) ||
          (frames < s_t.valid_frames && (uint16_t)(frames - s_t.valid_frames) >= 0x8000u));
     if (reset_hint) {
+        if (s_on_held) s_request_again = true;
+        s_on_held = false;
         s_start_unconfirmed = s_start_expired = false;
         s_request = 0U;
         close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
@@ -387,6 +401,12 @@ void heater_process(uint32_t now)
     uint16_t flags = le16(m, HTR_R_FLAGS);
     s_start_armed = (flags & HTR_F_START_ARMED) != 0U;
     bool stopped_locally = (flags & (HTR_F_HOST_TIMEOUT_STOP | HTR_F_START_REFUSED)) != 0U;
+    if (s_on_held) {
+        s_on_held = false;
+        s_request = s_start_armed && s_t.phase != HTR_PHASE_FAULT &&
+                    !(stopped_locally && !s_local_stop_seen);
+        s_request_again = !s_request;
+    }
     if (s_t.phase == HTR_PHASE_FAULT || (stopped_locally && !s_local_stop_seen)) {
         s_request = 0U;
         if (s_cmd_pending == HTR_CMD_START) s_cmd_pending = 0U;
@@ -467,6 +487,8 @@ write_failed:
     xport_fail(now);
 lost_check:
     if (s_ever_identified && (uint32_t)(now - s_last_ok) >= HEATER_LOST_MS) {
+        if (s_on_held) s_request_again = true;
+        s_on_held = false;
         s_request = 0U;
         close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
         s_last_ok = now;
@@ -474,6 +496,10 @@ lost_check:
     }
 publish:
     if (logged) {
+#ifdef HEATER_BENCH_FAULTS
+        poll_flags |= s_bench_poll_flags;
+        s_bench_poll_flags = 0U;
+#endif
         if (recovered || recovery_changed()) poll_flags |= HEATER_POLL_RECOVERY;
         log_poll(due, now, poll_flags);
     }
@@ -498,9 +524,11 @@ publish:
 
 bool heater_set_request(uint8_t on)
 {
+    bool hold = on && !s_request && s_ever_identified &&
+                (!s_identified || recovery_changed());
     if (on && (s_silence_stop || s_start_expired ||
                s_map_fault == HEATER_FLAG_MAP_MISMATCH ||
-               (!s_request && (!s_identified || !s_start_armed)))) {
+               (!hold && !s_request && (!s_identified || !s_start_armed)))) {
         s_request_again = true;
         s_t.flags |= HEATER_FLAG_REQUEST_AGAIN;
         return false;
@@ -508,10 +536,11 @@ bool heater_set_request(uint8_t on)
     s_request_again = false;
     s_t.flags &= (uint16_t)~HEATER_FLAG_REQUEST_AGAIN;
     if (!on) s_start_unconfirmed = s_start_expired = false;
-    s_request = on != 0U;
+    s_on_held = hold;
+    s_request = on && !hold;
     return true;
 }
-uint8_t heater_get_request(void) { return s_request; }
+uint8_t heater_get_request(void) { return s_request || s_on_held; }
 void    heater_set_level(uint8_t level) { if ((level >= 1U) && (level <= 10U)) s_level = level; }
 uint8_t heater_get_level(void) { return s_level; }
 void    heater_set_setpoint_c(int8_t c) { if ((c >= 5) && (c <= 30)) s_setpoint = c; }
@@ -534,8 +563,7 @@ bool heater_send_command(uint8_t cmd)
     if ((cmd < HTR_CMD_START) || (cmd > HTR_CMD_AUTO_DETECT)) return false;
     if (cmd == HTR_CMD_START && (s_silence_stop || s_map_fault != 0U)) return false;
     if (cmd == HTR_CMD_START || cmd == HTR_CMD_STOP) {
-        heater_set_request(cmd == HTR_CMD_START);
-        return cmd == HTR_CMD_STOP || s_request != 0U;
+        return heater_set_request(cmd == HTR_CMD_START);
     }
     s_cmd_pending = cmd;
     return true;
