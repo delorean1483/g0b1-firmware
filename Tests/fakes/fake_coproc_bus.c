@@ -21,6 +21,8 @@ static int fc_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len)
     f->last_write_reg = reg;
     f->last_write_len = len;
     for (i = 0; i < len; i++) if ((reg + i) < FAKE_COPROC_REGS) f->regs[reg + i] = buf[i];
+    if (reg == HTR_R_RUN_REQUEST && buf[0] == 0U)
+        f->regs[HTR_R_FLAGS + 1U] |= (uint8_t)(HTR_F_START_ARMED >> 8);
     if (reg == HTR_R_COMMAND && len != 0U) {
         f->command_writes++;
         if (f->fail_command_after_accept) return -1;
@@ -32,6 +34,8 @@ void fake_coproc_init(fake_coproc_t *f)
     memset(f, 0, sizeof(*f));
     f->regs[HTR_R_DEVICE_ID] = HTR_DEVICE_ID;
     f->regs[HTR_R_MAP_VERSION] = HEATER_EXPECTED_MAP_VERSION;
+    f->regs[HTR_R_HOST_TIMEOUT_S] = HTR_HOST_TIMEOUT_DEFAULT_S;
+    f->regs[HTR_R_FLAGS + 1U] = (uint8_t)(HTR_F_START_ARMED >> 8);
     f->regs[HTR_R_HEATER_TYPE] = 0xFFu;
     f->api.read = fc_read;
     f->api.write = fc_write;

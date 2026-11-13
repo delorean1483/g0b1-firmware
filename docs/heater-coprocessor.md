@@ -1,7 +1,7 @@
 # Heater coprocessor (EF-L011) — build, flash, bench bring-up
 
 Design: `docs/superpowers/specs/2026-10-06-heater-coprocessor-design.md`.
-I²C contract: `heater-common/htr_i2c_map.h` (slave 0x64, map version 1).
+I²C contract: `heater-common/htr_i2c_map.h` (slave 0x64, map version 2).
 
 ## Layout
 
@@ -66,23 +66,34 @@ Confirm the IS31FL3293 still ACKs at 0x6C on the same bus.
 Record reg 0x44 LINE_SENSE each time. Expected: none → class 0; VEVOR → bit0 + class 1; AUTOTERM → bit1 + class 2.
 **Record the AUTOTERM result while the heater is asleep** (spec open item 4) — if its TX does not idle high, auto-detect cannot see it and it must be forced.
 
-**M6 — VEVOR live.** Auto-detect → `ACTIVE_TYPE 1`, `SAFE_OFF` set. Fuelled: RUN_REQUEST 1, level 1 → STARTING → RUNNING; step levels; RUN_REQUEST 0 → STOP_REQUESTED → COOLDOWN → OFF + SAFE_OFF. Do not cut 12 V until SAFE_OFF.
+**M6 — VEVOR live.** Auto-detect → `ACTIVE_TYPE 1`, `SAFE_OFF` set. Fuelled: heartbeat (0x17, a new value at least every 10 s), RUN_REQUEST 0 (arms), then RUN_REQUEST 0xA5, level 1 → STARTING → RUNNING; step levels; RUN_REQUEST 0 → STOP_REQUESTED → COOLDOWN → OFF + SAFE_OFF. Do not cut 12 V until SAFE_OFF.
 
 **M7 — AUTOTERM live.** Auto-detect → `ACTIVE_TYPE 2`. Start at a setpoint; **write down the steady full-power VENDOR_STATE/VENDOR_SUB** (spec open item 5; currently assumed 2.4+/3.x = RUNNING). Stop → cooldown (state 4.x) → 0.1 standby. Note whether the heater needs `0x04`/`0x0B` (it should not; the driver never sends them).
 
-**M8 — full chain.** Cortex HeaterCard → Modbus → G0B1 → coprocessor → heater start/stop. Then, while running, disconnect the G0B1 I²C (or halt the G0B1): after `HOST_TIMEOUT_MIN` (set it to 1 for the test) the coprocessor must run a normal stop + cooldown and set `HOST_TIMEOUT_STOP` (FLAGS bit 5).
+**M8 — full chain.** Cortex HeaterCard → Modbus → G0B1 → coprocessor → heater start/stop. Then, while running, disconnect the G0B1 I²C (or halt the G0B1): after `HOST_TIMEOUT_S` (default 10 s) the coprocessor must run a normal stop + cooldown and set `HOST_TIMEOUT_STOP` (FLAGS bit 5). When the G0B1 comes back it must NOT restart the heater: it reads the flag, drops its request, and needs a fresh ON.
+
+## Run control (map v2)
+
+- **Only complete writes apply.** A write is applied at its STOP. One cut by a bus error or a repeated START, or one that touches anything outside 0x10–0x18, is dropped whole and counted in `WRITES_DISCARDED` (0x46).
+- **Heartbeat.** The host is live while it writes a *changed* value to 0x17 at least every `HOST_TIMEOUT_S` (3–60 s, default 10, RAM only). Reads don't count, and neither does rewriting the same value.
+- **Keyed start.** `RUN_REQUEST = 0xA5` starts only while the host is live and the start is armed. `RUN_REQUEST = 0` (or COMMAND 2 STOP) is a clean stop: always accepted, and it arms the next start. An accepted start, a host timeout and a FAULT disarm. Any other RUN_REQUEST value is BAD_ARG and stops without arming. COMMAND 1 START is NOT_SUPPORTED.
+- **Refused starts** set CMD_RESULT 5 NOT_ARMED or 6 NO_HOST (4 NO_TYPE as before) and FLAGS b11 `START_REFUSED`. The G0B1 latches its request off on `START_REFUSED`, `HOST_TIMEOUT_STOP` or FAULT, so replaying its old block can't restart the heater.
+- **EEPROM.** Only the heater type is persisted. The old minutes byte is written as 10 so a rolled-back v1 image still has its 10-minute timeout.
 
 ## Register cheat sheet (full map: `heater-common/htr_i2c_map.h`)
 
 | Reg | Name | Notes |
 |---|---|---|
-| 0x00/0x01 | DEVICE_ID / MAP_VERSION | `EF 01` |
+| 0x00/0x01 | DEVICE_ID / MAP_VERSION | `EF 02` |
 | 0x10 | HEATER_TYPE | FF auto, 0 none, 1 VEVOR, 2 AUTOTERM (persisted) |
-| 0x11–0x15 | RUN_REQUEST, LEVEL, SETPOINT_C, AMBIENT_C_X10 | G0B1 rewrites every 250 ms |
-| 0x16 | HOST_TIMEOUT_MIN | default 10, 0 = off (bench only) |
-| 0x18 / 0x19 | COMMAND / CMD_RESULT | 1 start 2 stop 3 clear-fault 4 reinit 5 auto-detect |
+| 0x11–0x15 | RUN_REQUEST, LEVEL, SETPOINT_C, AMBIENT_C_X10 | run: 0 stop, 0xA5 run. G0B1 writes 0x11–0x17 every 250 ms |
+| 0x16 | HOST_TIMEOUT_S | 3–60 s, default 10, RAM only (no off) |
+| 0x17 | HOST_HEARTBEAT | changed value = host live |
+| 0x18 / 0x19 | COMMAND / CMD_RESULT | 2 stop 3 clear-fault 4 reinit 5 auto-detect (1 start: not supported). Results 0 ok 1 busy 2 bad-arg 3 not-supported 4 no-type 5 not-armed 6 no-host |
 | 0x20 | PHASE | 0 off 1 detecting 2 starting 3 running 4 stop-req 5 cooldown 6 fault |
-| 0x22 | FLAGS | b0 present b1 fresh b2 safe-off b3 comms-fault b4 iface b5 host-timeout b6 echo-fault b7 detect-done b8 fault-latched |
+| 0x22 | FLAGS | b0 present b1 fresh b2 safe-off b3 comms-fault b4 iface b5 host-timeout b6 echo-fault b7 detect-done b8 fault-latched b9 host-live b10 start-armed b11 start-refused |
 | 0x26/0x27 | VENDOR_STATE / SUB | raw (AUTOTERM major.minor) |
 | 0x3E | ECHO_ERRS | 3-wire TX-path health |
+| 0x42 | HOST_IDLE_S | seconds since the last valid heartbeat |
 | 0x44 / 0x45 | LINE_SENSE / DETECT_RESULT | auto-detect diagnostics |
+| 0x46 | WRITES_DISCARDED | u16, dropped partial or out-of-block writes |

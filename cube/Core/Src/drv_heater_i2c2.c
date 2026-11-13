@@ -18,7 +18,9 @@ static int hc_read(void *ctx, uint8_t reg, uint8_t *buf, uint16_t len)
 static int hc_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len)
 {
     (void)ctx;
-    if (reg <= HTR_R_COMMAND && len > (uint16_t)(HTR_R_COMMAND - reg))
+    if ((reg <= HTR_R_COMMAND && len > (uint16_t)(HTR_R_COMMAND - reg)) ||
+        (reg <= HTR_R_RUN_REQUEST && len > (uint16_t)(HTR_R_RUN_REQUEST - reg) &&
+         buf[HTR_R_RUN_REQUEST - reg] == HTR_RUN_KEY))
         return drv_i2c2_write_once(HTR_I2C_ADDR7, reg, buf, len, HEATER_I2C_TIMEOUT_MS);
     return drv_i2c2_write(HTR_I2C_ADDR7, reg, buf, len, HEATER_I2C_TIMEOUT_MS);
 }

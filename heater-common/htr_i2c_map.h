@@ -6,7 +6,7 @@
 
 #define HTR_I2C_ADDR7        0x64u
 #define HTR_DEVICE_ID        0xEFu
-#define HTR_MAP_VERSION      1u
+#define HTR_MAP_VERSION      2u   /* v2: keyed start, heartbeat, seconds timeout */
 
 /* Identity (RO) */
 #define HTR_R_DEVICE_ID       0x00u
@@ -21,15 +21,30 @@
 
 /* Control (RW) */
 #define HTR_R_HEATER_TYPE     0x10u   /* HTR_TYPE_*, persisted */
-#define HTR_R_RUN_REQUEST     0x11u
+#define HTR_R_RUN_REQUEST     0x11u   /* 0 = stop (arms the next start), HTR_RUN_KEY = run */
 #define HTR_R_LEVEL           0x12u   /* 1..10 */
 #define HTR_R_SETPOINT_C      0x13u   /* s8, 5..30 */
 #define HTR_R_AMBIENT_C_X10   0x14u   /* s16, -400..850, 0x7FFF unknown */
-#define HTR_R_HOST_TIMEOUT    0x16u   /* minutes 0..60, 0 = disabled (bench), persisted */
+#define HTR_R_HOST_TIMEOUT_S  0x16u   /* seconds, HTR_HOST_TIMEOUT_MIN_S..MAX_S, RAM only */
+#define HTR_R_HOST_HEARTBEAT  0x17u   /* host writes a changing value every poll */
 #define HTR_R_COMMAND         0x18u   /* WO */
 #define HTR_R_CMD_RESULT      0x19u   /* RO */
 
-#define HTR_CMD_START         1u
+/* Run control (map v2). Only a complete write transaction (ended by STOP,
+   no bus error, inside 0x10..0x18) is applied. The host is live while it
+   writes a CHANGED heartbeat at least every HOST_TIMEOUT_S; reads don't count.
+   RUN_REQUEST = HTR_RUN_KEY starts only while the host is live and the start
+   is armed. A clean stop (RUN_REQUEST = 0 or STOP) arms; an accepted start,
+   a host timeout and a FAULT disarm. So after any stop the host didn't ask
+   for, replaying the old block can't restart the heater. */
+#define HTR_RUN_KEY            0xA5u
+#define HTR_HOST_TIMEOUT_MIN_S 3u
+#define HTR_HOST_TIMEOUT_MAX_S 60u
+#define HTR_HOST_TIMEOUT_DEFAULT_S 10u
+#define HTR_CTRL_FIRST         HTR_R_HEATER_TYPE
+#define HTR_CTRL_END           (HTR_R_COMMAND + 1u)   /* writable: 0x10..0x18 */
+
+#define HTR_CMD_START         1u   /* v2: NOT_SUPPORTED on the wire; use RUN_REQUEST */
 #define HTR_CMD_STOP          2u
 #define HTR_CMD_CLEAR_FAULT   3u
 #define HTR_CMD_REINIT_IFACE  4u
@@ -40,6 +55,8 @@
 #define HTR_RES_BAD_ARG       2u
 #define HTR_RES_NOT_SUPPORTED 3u
 #define HTR_RES_NO_TYPE       4u
+#define HTR_RES_NOT_ARMED     5u   /* start without a clean stop since run last dropped */
+#define HTR_RES_NO_HOST       6u   /* start without a live heartbeat */
 
 /* Status (RO, snapshotted per read transaction) */
 #define HTR_R_PHASE           0x20u
@@ -65,7 +82,8 @@
 #define HTR_R_HOST_IDLE_S     0x42u
 #define HTR_R_LINE_SENSE      0x44u
 #define HTR_R_DETECT_RESULT   0x45u
-#define HTR_REG_COUNT         0x46u
+#define HTR_R_WRITES_DISCARDED 0x46u  /* u16: aborted, cut or out-of-block writes */
+#define HTR_REG_COUNT         0x48u
 #define HTR_STATUS_FIRST      HTR_R_PHASE
 #define HTR_STATUS_LEN        (HTR_REG_COUNT - HTR_R_PHASE)
 
@@ -79,6 +97,9 @@
 #define HTR_F_ECHO_FAULT        (1u << 6)
 #define HTR_F_DETECT_DONE       (1u << 7)
 #define HTR_F_FAULT_LATCHED     (1u << 8)
+#define HTR_F_HOST_LIVE         (1u << 9)
+#define HTR_F_START_ARMED       (1u << 10)
+#define HTR_F_START_REFUSED     (1u << 11)  /* last start refused; cleared by a clean stop or a start */
 
 /* LINE_SENSE */
 #define HTR_LS_A_IDLE_HIGH    (1u << 0)

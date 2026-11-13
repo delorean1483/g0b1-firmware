@@ -26,15 +26,15 @@ void test_identifies_then_writes_only_changed_control(void){
     heater_set_request(1); heater_set_level(6); heater_set_setpoint_c(22); heater_set_ambient_f(77);
     run_to(1000);
     TEST_ASSERT_TRUE(tel().present);
-    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
     TEST_ASSERT_EQUAL_UINT8(6, c.regs[HTR_R_LEVEL]);
     TEST_ASSERT_EQUAL_INT8(22, (int8_t)c.regs[HTR_R_SETPOINT_C]);
     TEST_ASSERT_EQUAL_HEX16(250, (uint16_t)(c.regs[HTR_R_AMBIENT_C_X10] | (c.regs[HTR_R_AMBIENT_C_X10+1] << 8))); /* 77F = 25.0C */
     unsigned w = c.writes; run_to(2000);
-    TEST_ASSERT_EQUAL_UINT(w, c.writes);
+    TEST_ASSERT_EQUAL_UINT(w + 4, c.writes);
     c.regs[HTR_R_LEVEL] = 2;
     run_to(2300);
-    TEST_ASSERT_EQUAL_UINT(w + 1, c.writes);
+    TEST_ASSERT_EQUAL_UINT(w + 6, c.writes);
     TEST_ASSERT_EQUAL_UINT8(6, c.regs[HTR_R_LEVEL]);
     TEST_ASSERT_EQUAL_UINT8(HTR_R_LEVEL, c.last_write_reg);
 }
@@ -136,7 +136,7 @@ void test_no_coprocessor_at_boot(void){
    a later coprocessor reset or CLEAR_FAULT can never re-ignite on a stale ON. */
 void test_fault_latches_request_off(void){
     heater_set_request(1); run_to(1500);
-    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
     c.regs[HTR_R_PHASE] = HTR_PHASE_FAULT; run_to(2000);
     TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
     run_to(2500);
@@ -151,7 +151,7 @@ void test_command_forwarded_once_and_result_read_back(void){
     TEST_ASSERT_EQUAL_UINT8(HTR_CMD_CLEAR_FAULT, c.regs[HTR_R_COMMAND]);
     c.regs[HTR_R_COMMAND] = 0; run_to(3000);
     TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_COMMAND]);       /* not repeated */
-    TEST_ASSERT_TRUE(c.writes - w0 <= 7);
+    TEST_ASSERT_TRUE(c.writes - w0 <= 9);
     TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, tel().cmd_result);
     TEST_ASSERT_FALSE(heater_send_command(0));
     TEST_ASSERT_FALSE(heater_send_command(6));
@@ -178,7 +178,7 @@ static void test_version_read_failure_drops_start(void)
 {
     run_to(500);
     heater_set_request(1);
-    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_CLEAR_FAULT));
     c.fail_identity = true;
     unsigned writes = c.writes;
     run_to(750);
@@ -190,7 +190,7 @@ static void test_version_read_failure_drops_start(void)
     run_to(2200);
     TEST_ASSERT_TRUE(tel().present);
     TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
-    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
 }
 
 static void test_recovery_requires_new_identity_before_any_write(void)
@@ -200,7 +200,7 @@ static void test_recovery_requires_new_identity_before_any_write(void)
     run_to(500);
     heater_set_request(1);
     run_to(750);
-    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_CLEAR_FAULT));
     unsigned writes = c.writes;
     unsigned reads = c.reads;
     ++epoch;
@@ -211,14 +211,14 @@ static void test_recovery_requires_new_identity_before_any_write(void)
     TEST_ASSERT_BITS_LOW(HEATER_FLAG_MAP_UNREADABLE | HEATER_FLAG_COMMS_FAULT, tel().flags);
     run_to(1250);
     TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
-    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
 }
 
 static void test_reflash_mismatch_and_matching_reset_drop_start(void)
 {
     run_to(500);
     heater_set_request(1);
-    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_CLEAR_FAULT));
     heater_set_type_select(2);
     c.regs[HTR_R_MAP_VERSION] = HEATER_EXPECTED_MAP_VERSION == 1 ? 2 : 1;
     unsigned writes = c.writes;
@@ -231,7 +231,7 @@ static void test_reflash_mismatch_and_matching_reset_drop_start(void)
     TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
     TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
     heater_set_request(1);
-    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_CLEAR_FAULT));
     c.regs[HTR_R_PHASE] = HTR_PHASE_DETECTING;
     run_to(2600);
     TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
@@ -262,7 +262,7 @@ static void test_silence_quiets_v1_bus_and_requires_fresh_start(void)
     run_to(9000);
     heater_set_request(1);
     run_to(9250);
-    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
 }
 
 static void test_poll_log_tracks_due_start_duration_and_valid_gap(void)
@@ -285,35 +285,34 @@ static void test_local_timeout_clears_run_without_reasserting(void)
     run_to(500);
     heater_set_request(1);
     run_to(1000);
-    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
     c.regs[HTR_R_RUN_REQUEST] = 0;
     put16(HTR_R_FLAGS, HTR_F_HOST_TIMEOUT_STOP);
     unsigned writes = c.writes;
     run_to(1500);
     TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
-    TEST_ASSERT_EQUAL_UINT(writes, c.writes);
+    TEST_ASSERT_EQUAL_UINT(writes + 3, c.writes);
     TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
 }
 
-#ifdef HTR_RES_START_REFUSED
+#ifdef HTR_F_START_REFUSED
 static void test_start_refusal_clears_run_without_reasserting(void)
 {
     run_to(500);
     heater_set_request(1);
     run_to(1000);
     c.regs[HTR_R_RUN_REQUEST] = 0;
-    c.regs[HTR_R_CMD_RESULT] = HTR_RES_START_REFUSED;
-    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    put16(HTR_R_FLAGS, HTR_F_START_REFUSED | HTR_F_START_ARMED);
     unsigned writes = c.writes;
     run_to(1500);
     TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
-    TEST_ASSERT_EQUAL_UINT(writes, c.writes);
+    TEST_ASSERT_EQUAL_UINT(writes + 2, c.writes);
     TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
 }
 #endif
 
 int main(void){ UNITY_BEGIN();
-#ifdef HTR_RES_START_REFUSED
+#ifdef HTR_F_START_REFUSED
     RUN_TEST(test_start_refusal_clears_run_without_reasserting);
 #endif
     RUN_TEST(test_local_timeout_clears_run_without_reasserting);

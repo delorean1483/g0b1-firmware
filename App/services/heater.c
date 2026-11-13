@@ -10,7 +10,7 @@ static bool s_cortex_seen, s_silence_stop, s_cortex_silent;
 static uint8_t s_silence_attempts;
 static bool s_silence_verify, s_local_stop_seen;
 #define HEATER_SILENCE_STOP_ATTEMPTS 3U
-#define HEATER_V1_TIMEOUT_MIN 1U
+
 static uint32_t s_cortex_at;
 static uint32_t (*s_poll_clock)(void);
 static uint16_t s_poll_head, s_poll_log[HEATER_POLL_LOG_SLOTS][HEATER_POLL_LOG_WORDS];
@@ -268,8 +268,7 @@ void heater_process(uint32_t now)
     bool logged = false;
     uint16_t poll_flags = 0U;
     uint32_t due = now;
-    /* v1 has no heartbeat register: even a read refreshes its watchdog.
-       Cease addressed traffic on silence so the local timeout can expire. */
+    /* Never advance the L011 heartbeat without fresh Cortex traffic. */
     if (!s_cortex_seen || (uint32_t)(now - s_cortex_at) >= HEATER_CORTEX_FRESH_MS) {
         if (s_cortex_seen) {
             latch_cortex_silence();
@@ -313,10 +312,8 @@ void heater_process(uint32_t now)
     s_t.cmd_result = m[HTR_R_CMD_RESULT];
     decode_status(m);
     s_status_seen = true;
-    bool stopped_locally = (le16(m, HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP) != 0U;
-#ifdef HTR_RES_START_REFUSED
-    stopped_locally |= s_t.cmd_result == HTR_RES_START_REFUSED;
-#endif
+    uint16_t flags = le16(m, HTR_R_FLAGS);
+    bool stopped_locally = (flags & (HTR_F_HOST_TIMEOUT_STOP | HTR_F_START_REFUSED)) != 0U;
     if (s_t.phase == HTR_PHASE_FAULT || (stopped_locally && !s_local_stop_seen)) {
         s_request = 0U;
         if (s_cmd_pending == HTR_CMD_START) s_cmd_pending = 0U;
@@ -329,24 +326,29 @@ void heater_process(uint32_t now)
         goto publish;
     }
 
-    if (HEATER_EXPECTED_MAP_VERSION == 1U &&
-        m[HTR_R_HOST_TIMEOUT] != HEATER_V1_TIMEOUT_MIN && !s_silence_stop &&
-        (s_request != 0U || m[HTR_R_RUN_REQUEST] == 0U)) {
-        const uint8_t timeout = HEATER_V1_TIMEOUT_MIN;
-        if (write_checked(HTR_R_HOST_TIMEOUT, &timeout, 1U) != 0) goto write_failed;
-        /* Require the next poll to confirm the persisted setting before START. */
-        s_last_ok = now;
-        goto publish;
+    const uint8_t heartbeat = (uint8_t)(m[HTR_R_HOST_HEARTBEAT] + 1U);
+    if (write_checked(HTR_R_HOST_HEARTBEAT, &heartbeat, 1U) != 0) goto write_failed;
+    if (m[HTR_R_HOST_TIMEOUT_S] != HEATER_HOST_TIMEOUT_S && !s_silence_stop) {
+        const uint8_t timeout = HEATER_HOST_TIMEOUT_S;
+        if (write_checked(HTR_R_HOST_TIMEOUT_S, &timeout, 1U) != 0) goto write_failed;
+        if (s_request != 0U) goto publish;
     }
-    ctl[0] = s_silence_stop ? 0U : s_request;
+    ctl[0] = s_silence_stop || !s_request ? 0U : HTR_RUN_KEY;
     ctl[1] = s_level;
     ctl[2] = (uint8_t)s_setpoint;
     ctl[3] = (uint8_t)((uint16_t)s_ambient_x10 & 0xFFU);
     ctl[4] = (uint8_t)((uint16_t)s_ambient_x10 >> 8);
     /* Compare the prior write against the next fresh status snapshot.
        Keep RUN_REQUEST out of level/setpoint writes and ambient atomic. */
-    if (ctl[0] != m[HTR_R_RUN_REQUEST] &&
-        write_checked(HTR_R_RUN_REQUEST, ctl, 1U) != 0) goto write_failed;
+    if (ctl[0] != m[HTR_R_RUN_REQUEST] || (!ctl[0] && !(flags & HTR_F_START_ARMED))) {
+        if (ctl[0] != 0U && !(flags & HTR_F_START_ARMED)) {
+            s_request = 0U;
+        } else if (write_checked(HTR_R_RUN_REQUEST, ctl, 1U) != 0) {
+            /* Ambiguous delivery must never replay a keyed START. */
+            if (ctl[0] != 0U) s_request = 0U;
+            goto write_failed;
+        }
+    }
     if (memcmp(&ctl[1], &m[HTR_R_LEVEL], 4U) != 0 &&
         write_checked(HTR_R_LEVEL, &ctl[1], 4U) != 0) goto write_failed;
     if (s_type_pending) {
@@ -418,6 +420,10 @@ bool heater_send_command(uint8_t cmd)
 {
     if ((cmd < HTR_CMD_START) || (cmd > HTR_CMD_AUTO_DETECT)) return false;
     if (cmd == HTR_CMD_START && (s_silence_stop || s_map_fault != 0U)) return false;
+    if (cmd == HTR_CMD_START || cmd == HTR_CMD_STOP) {
+        heater_set_request(cmd == HTR_CMD_START);
+        return cmd == HTR_CMD_STOP || s_request != 0U;
+    }
     s_cmd_pending = cmd;
     return true;
 }
