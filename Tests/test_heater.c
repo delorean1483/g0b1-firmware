@@ -246,7 +246,8 @@ static void test_silence_quiets_v1_bus_and_requires_fresh_start(void)
     heater_set_request(1);
     run_to(750);
     cortex_live = false;
-    run_to(5750);
+    run_to(6500);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
     unsigned reads = c.reads;
     unsigned writes = c.writes;
     run_to(8000);
@@ -279,7 +280,43 @@ static void test_poll_log_tracks_due_start_duration_and_valid_gap(void)
     TEST_ASSERT_EQUAL_UINT16(400, heater_poll_diagnostic(HEATER_POLL_MAX_GAP_LO));
 }
 
+static void test_local_timeout_clears_run_without_reasserting(void)
+{
+    run_to(500);
+    heater_set_request(1);
+    run_to(1000);
+    TEST_ASSERT_EQUAL_UINT8(1, c.regs[HTR_R_RUN_REQUEST]);
+    c.regs[HTR_R_RUN_REQUEST] = 0;
+    put16(HTR_R_FLAGS, HTR_F_HOST_TIMEOUT_STOP);
+    unsigned writes = c.writes;
+    run_to(1500);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_EQUAL_UINT(writes, c.writes);
+    TEST_ASSERT_EQUAL_UINT8(0, c.regs[HTR_R_RUN_REQUEST]);
+}
+
+#ifdef HTR_RES_START_REFUSED
+static void test_start_refusal_clears_run_without_reasserting(void)
+{
+    run_to(500);
+    heater_set_request(1);
+    run_to(1000);
+    c.regs[HTR_R_RUN_REQUEST] = 0;
+    c.regs[HTR_R_CMD_RESULT] = HTR_RES_START_REFUSED;
+    TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_START));
+    unsigned writes = c.writes;
+    run_to(1500);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_EQUAL_UINT(writes, c.writes);
+    TEST_ASSERT_EQUAL_UINT(0, c.command_writes);
+}
+#endif
+
 int main(void){ UNITY_BEGIN();
+#ifdef HTR_RES_START_REFUSED
+    RUN_TEST(test_start_refusal_clears_run_without_reasserting);
+#endif
+    RUN_TEST(test_local_timeout_clears_run_without_reasserting);
     RUN_TEST(test_silence_quiets_v1_bus_and_requires_fresh_start);
     RUN_TEST(test_poll_log_tracks_due_start_duration_and_valid_gap);
     RUN_TEST(test_version_read_failure_drops_start);

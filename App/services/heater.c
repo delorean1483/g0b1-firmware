@@ -6,7 +6,11 @@
 static const i2c_backend_t *s_bus;
 static void (*s_reset)(void);
 static uint8_t s_request;
-static bool s_cortex_seen, s_silence_stop;
+static bool s_cortex_seen, s_silence_stop, s_cortex_silent;
+static uint8_t s_silence_attempts;
+static bool s_silence_verify, s_local_stop_seen;
+#define HEATER_SILENCE_STOP_ATTEMPTS 3U
+#define HEATER_V1_TIMEOUT_MIN 1U
 static uint32_t s_cortex_at;
 static uint32_t (*s_poll_clock)(void);
 static uint16_t s_poll_head, s_poll_log[HEATER_POLL_LOG_SLOTS][HEATER_POLL_LOG_WORDS];
@@ -69,7 +73,9 @@ static uint16_t sat16(uint32_t v) { return (v > 0xFFFFU) ? 0xFFFFU : (uint16_t)v
 void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t now)
 {
     s_bus = bus;
-    s_cortex_seen = s_silence_stop = false;
+    s_cortex_seen = s_silence_stop = s_cortex_silent = false;
+    s_silence_attempts = 0U;
+    s_silence_verify = s_local_stop_seen = false;
     s_cortex_at = now;
     s_poll_clock = NULL;
     s_poll_head = 0;
@@ -170,7 +176,11 @@ static void close_write_gate(uint16_t fault)
 
 static void latch_cortex_silence(void)
 {
+    if (s_cortex_silent) return;
+    s_cortex_silent = true;
     s_silence_stop = true;
+    s_silence_attempts = HEATER_SILENCE_STOP_ATTEMPTS;
+    s_silence_verify = false;
     s_request = 0U;
     s_cmd_pending = 0U;
     s_type_pending = 0U;
@@ -182,6 +192,7 @@ void heater_note_cortex_traffic(uint32_t now)
 {
     if (s_cortex_seen && (uint32_t)(now - s_cortex_at) >= HEATER_CORTEX_FRESH_MS)
         latch_cortex_silence();
+    s_cortex_silent = false;
     s_cortex_seen = true;
     s_cortex_at = now;
 }
@@ -221,6 +232,33 @@ static int write_checked(uint8_t reg, const uint8_t *data, uint16_t len)
     return result;
 }
 
+/* Each attempt is paced by the poll interval. After the budget expires,
+   even diagnostic reads must stop so the v1 watchdog can expire. */
+static void stop_on_cortex_silence(uint32_t now)
+{
+    if ((s_silence_attempts == 0U && !s_silence_verify) ||
+        (uint32_t)(now - s_last_poll) < HEATER_POLL_MS) return;
+    s_last_poll = now;
+    bool verify = s_silence_verify;
+    s_silence_verify = false;
+    if (!check_map(now)) {
+        if (s_silence_attempts != 0U) --s_silence_attempts;
+        return;
+    }
+
+    uint8_t actual;
+    if (verify && s_bus->read(s_bus->ctx, HTR_R_RUN_REQUEST, &actual, 1U) == 0 &&
+        !recovery_changed() && actual == 0U) {
+        s_silence_attempts = 0U;
+    } else if (s_silence_attempts != 0U) {
+        --s_silence_attempts;
+        const uint8_t off = 0U;
+        if (write_checked(HTR_R_RUN_REQUEST, &off, 1U) != 0) xport_fail(now);
+        s_silence_verify = true;
+    }
+    s_identified = 0U;
+}
+
 void heater_process(uint32_t now)
 {
     uint8_t m[HTR_REG_COUNT];
@@ -233,7 +271,10 @@ void heater_process(uint32_t now)
     /* v1 has no heartbeat register: even a read refreshes its watchdog.
        Cease addressed traffic on silence so the local timeout can expire. */
     if (!s_cortex_seen || (uint32_t)(now - s_cortex_at) >= HEATER_CORTEX_FRESH_MS) {
-        if (s_cortex_seen) latch_cortex_silence();
+        if (s_cortex_seen) {
+            latch_cortex_silence();
+            stop_on_cortex_silence(now);
+        }
         goto publish;
     }
     bool recovered = recovery_changed();
@@ -272,10 +313,15 @@ void heater_process(uint32_t now)
     s_t.cmd_result = m[HTR_R_CMD_RESULT];
     decode_status(m);
     s_status_seen = true;
-    if (s_t.phase == HTR_PHASE_FAULT) {
+    bool stopped_locally = (le16(m, HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP) != 0U;
+#ifdef HTR_RES_START_REFUSED
+    stopped_locally |= s_t.cmd_result == HTR_RES_START_REFUSED;
+#endif
+    if (s_t.phase == HTR_PHASE_FAULT || (stopped_locally && !s_local_stop_seen)) {
         s_request = 0U;
         if (s_cmd_pending == HTR_CMD_START) s_cmd_pending = 0U;
     }
+    s_local_stop_seen = stopped_locally;
     if (s_silence_stop && m[HTR_R_RUN_REQUEST] == 0U) s_silence_stop = false;
     poll_flags |= HEATER_POLL_VALID_STATUS;
     if (!previously_identified && !s_silence_stop) {
@@ -283,6 +329,15 @@ void heater_process(uint32_t now)
         goto publish;
     }
 
+    if (HEATER_EXPECTED_MAP_VERSION == 1U &&
+        m[HTR_R_HOST_TIMEOUT] != HEATER_V1_TIMEOUT_MIN && !s_silence_stop &&
+        (s_request != 0U || m[HTR_R_RUN_REQUEST] == 0U)) {
+        const uint8_t timeout = HEATER_V1_TIMEOUT_MIN;
+        if (write_checked(HTR_R_HOST_TIMEOUT, &timeout, 1U) != 0) goto write_failed;
+        /* Require the next poll to confirm the persisted setting before START. */
+        s_last_ok = now;
+        goto publish;
+    }
     ctl[0] = s_silence_stop ? 0U : s_request;
     ctl[1] = s_level;
     ctl[2] = (uint8_t)s_setpoint;

@@ -1,4 +1,4 @@
-/* drv_modbus_uart.c â€” USART1 RS-485 Modbus RTU slave transport (Task 5).
+/* drv_modbus_uart.c — USART1 RS-485 Modbus RTU slave transport (Task 5).
  *
  * RX: HAL_UARTEx_ReceiveToIdle_DMA into a circular-sized buffer; the USART
  *     IDLE-line event (raised one character time after the last byte) delimits
@@ -7,14 +7,14 @@
  *
  *     NOTE (spec deviation, intentional): the spec/plan name the USART Receiver
  *     Timeout (RTO, 3.5-char) for the inter-frame gap. HAL's ReceiveToIdle uses
- *     the IDLE line (~1 char) instead â€” it is the HAL-native, well-tested path
+ *     the IDLE line (~1 char) instead — it is the HAL-native, well-tested path
  *     for variable-length RTU reception and delimits frames correctly at 9600
  *     with a normal master. If the bench sees frames split by intra-frame gaps,
- *     switch to a manual RTO IRQ (UART_IT_RTO / RTOF) â€” the poll()/engine path
+ *     switch to a manual RTO IRQ (UART_IT_RTO / RTOF) — the poll()/engine path
  *     below is unchanged.
  *
  * TX: HAL_UART_Transmit_DMA; the USART hardware Driver-Enable (DEM, PB3) asserts
- *     DE for the duration of the transmission automatically â€” no GPIO toggle.
+ *     DE for the duration of the transmission automatically — no GPIO toggle.
  *     RX is muted (AbortReceive) for the TX so we never assemble our own echo
  *     as a phantom request (correct whether or not the transceiver ties RE=DE),
  *     then re-armed on TX-complete.
@@ -63,7 +63,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
     arm_rx();                        /* listen for the next frame */
 }
 
-/* HAL callback: our response finished transmitting â€” resume listening. */
+/* HAL callback: our response finished transmitting — resume listening. */
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance != USART1) return;
@@ -71,7 +71,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
     arm_rx();
 }
 
-/* HAL callback: line error (overrun/framing/noise) â€” drop any partial frame and
+/* HAL callback: line error (overrun/framing/noise) — drop any partial frame and
  * recover reception. */
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
