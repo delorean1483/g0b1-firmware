@@ -34,10 +34,11 @@ uint16_t heater_bench_take_midbyte(void)
     return mode;
 }
 
-void heater_bench_log_midbyte(uint16_t mode, bool edge_seen)
+void heater_bench_log_midbyte(uint16_t mode, bool edge_seen, unsigned bits_sent)
 {
     s_bench_poll_flags |= mode == 4U ? HEATER_POLL_ABORT_LOW : HEATER_POLL_ABORT_HIGH;
     if (!edge_seen) s_bench_poll_flags |= HEATER_POLL_ABORT_EDGE_MISSED;
+    s_bench_poll_flags |= (uint16_t)((bits_sent & 0xFu) << HEATER_POLL_ABORT_BITS_SHIFT);
 }
 #endif
 static bool s_cortex_seen, s_silence_stop, s_cortex_silent;

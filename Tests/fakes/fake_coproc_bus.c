@@ -25,7 +25,7 @@ static int fc_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len)
     uint16_t mode = heater_bench_take_midbyte();
     if (mode) {
         f->midbyte_mode = mode;
-        heater_bench_log_midbyte(mode, true);
+        heater_bench_log_midbyte(mode, true, mode == 4U ? 6U : 3U);
         /* Model the slave accepting the first byte after recovery fills
            the last two bits with ones. Later bytes never arrive. */
         if (mode == 4U) f->regs[reg] = buf[0] | 3U;

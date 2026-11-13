@@ -319,29 +319,29 @@ int i2c_heater_bench_abort(void *handle)
     uint32_t prior = SCL_PORT->IDR & SCL_PIN;
     unsigned rises = 0;
     const unsigned target_rises = mode == 4u ? 6u : 3u;
+    const uint32_t scl_output = (SCL_PORT->MODER & ~(3u << 22)) | (1u << 22);
+    if (mode == 4u) SCL_PORT->BSRR = (uint32_t)SCL_PIN << 16;
     bool edge_seen = false;
     for (unsigned budget = 0; budget < 1200U; ++budget) {
         uint32_t current = SCL_PORT->IDR & SCL_PIN;
         if (current && !prior) ++rises;
         if (rises == target_rises && (mode == 4U ? !current : current)) {
+            if (mode == 4u) {
+                unsigned sent = rises + ((SCL_PORT->IDR & SCL_PIN) != 0u);
+                SCL_PORT->MODER = scl_output;
+                s_bench_fill_clocks = 9u - sent;
+            }
             edge_seen = true;
             break;
         }
         prior = current;
     }
-    heater_bench_log_midbyte(mode, edge_seen);
-    if (!edge_seen) return 0;
-    if (mode == 4U) {
-        /* Take over the low clock before disabling I2C so it cannot rise
-           early while the peripheral releases SDA. */
-        GPIO_InitTypeDef gpio = {0};
-        gpio.Pin = SCL_PIN;
-        gpio.Mode = GPIO_MODE_OUTPUT_OD;
-        HAL_GPIO_WritePin(SCL_PORT, SCL_PIN, GPIO_PIN_RESET);
-        HAL_GPIO_Init(SCL_PORT, &gpio);
-        s_bench_fill_clocks = 3u; /* two data bits and the ACK clock */
+    if (!edge_seen) {
+        heater_bench_log_midbyte(mode, false, 0);
+        return 0;
     }
     __HAL_I2C_DISABLE(&hi2c2);
+    heater_bench_log_midbyte(mode, true, mode == 4u ? 9u - s_bench_fill_clocks : rises);
     s_bench_abort = true;
     return 1;
 }

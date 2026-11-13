@@ -59,7 +59,8 @@ typedef struct {
 bool heater_bench_arm(uint16_t mode);
 uint16_t heater_bench_pending(void);
 uint16_t heater_bench_take_midbyte(void);
-void heater_bench_log_midbyte(uint16_t mode, bool edge_seen);
+void heater_bench_log_midbyte(uint16_t mode, bool edge_seen, unsigned bits_sent);
+#define HEATER_POLL_ABORT_BITS_SHIFT  8U
 #define HEATER_POLL_ABORT_HIGH        (1U << 3)
 #define HEATER_POLL_ABORT_LOW         (1U << 4)
 #define HEATER_POLL_ABORT_EDGE_MISSED (1U << 5)
