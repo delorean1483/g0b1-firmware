@@ -23,6 +23,7 @@ void setUp(void){ fake_coproc_init(&c); now = 0; cortex_live = true; heater_init
 void tearDown(void){}
 
 void test_identifies_then_writes_only_changed_control(void){
+    run_to(250);
     heater_set_request(1); heater_set_level(6); heater_set_setpoint_c(22); heater_set_ambient_f(77);
     run_to(1000);
     TEST_ASSERT_TRUE(tel().present);
@@ -135,6 +136,7 @@ void test_no_coprocessor_at_boot(void){
 /* Review finding 3: a coprocessor FAULT latches the G0B1's request off, so
    a later coprocessor reset or CLEAR_FAULT can never re-ignite on a stale ON. */
 void test_fault_latches_request_off(void){
+    run_to(250);
     heater_set_request(1); run_to(1500);
     TEST_ASSERT_EQUAL_UINT8(HTR_RUN_KEY, c.regs[HTR_R_RUN_REQUEST]);
     c.regs[HTR_R_PHASE] = HTR_PHASE_FAULT; run_to(2000);
@@ -311,7 +313,18 @@ static void test_start_refusal_clears_run_without_reasserting(void)
 }
 #endif
 
+static void test_unarmed_on_sets_operator_feedback(void)
+{
+    TEST_ASSERT_FALSE(heater_set_request(1));
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    run_to(500);
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    TEST_ASSERT_BITS_LOW(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+}
+
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_unarmed_on_sets_operator_feedback);
 #ifdef HTR_F_START_REFUSED
     RUN_TEST(test_start_refusal_clears_run_without_reasserting);
 #endif

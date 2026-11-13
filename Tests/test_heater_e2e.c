@@ -14,12 +14,15 @@ static fake_gpio_t g; static fake_uart_t u3, u4;
 static const htr_driver_t *const drvs[] = { &fake_drv[0], &fake_drv[1] };
 static uint32_t now;
 static bool cortex_live, reject_stop;
-static unsigned stop_writes;
+static unsigned stop_writes, start_writes;
+static bool fail_start, deliver_start, fail_status;
 
 /* Mem_Write = START addr+W, ptr, data..., STOP. Mem_Read = START addr+W, ptr,
    RESTART addr+R, data..., STOP (no STOP between the two phases). */
 static int br_read(void *ctx, uint8_t reg, uint8_t *buf, uint16_t len){
-    (void)ctx; htr_regs_i2c_begin(false); htr_regs_i2c_rx(reg);
+    (void)ctx;
+    if (fail_status && reg == HTR_R_HEATER_TYPE) return -1;
+    htr_regs_i2c_begin(false); htr_regs_i2c_rx(reg);
     htr_regs_i2c_begin(true); for(uint16_t i=0;i<len;i++) buf[i]=htr_regs_i2c_tx(); htr_regs_i2c_end(); return 0;
 }
 static int br_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len){
@@ -28,8 +31,14 @@ static int br_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len){
         ++stop_writes;
         if (reject_stop) return -1;
     }
+    bool report_failure = false;
+    if (reg == HTR_R_RUN_REQUEST && len == 1U && buf[0] == HTR_RUN_KEY) {
+        ++start_writes;
+        report_failure = fail_start;
+        if (fail_start && !deliver_start) return -1;
+    }
     htr_regs_i2c_begin(false); htr_regs_i2c_rx(reg);
-    for(uint16_t i=0;i<len;i++) htr_regs_i2c_rx(buf[i]); htr_regs_i2c_end(); return 0;
+    for(uint16_t i=0;i<len;i++) htr_regs_i2c_rx(buf[i]); htr_regs_i2c_end(); return report_failure ? -1 : 0;
 }
 static const i2c_backend_t bridge = { br_read, br_write, 0 };
 
@@ -49,7 +58,7 @@ static void coproc_boot(void){
     htr_fsm_init(&fc, type, now);
 }
 void setUp(void){
-    fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4); now = 0; cortex_live = true; reject_stop = false; stop_writes = 0;
+    fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4); now = 0; cortex_live = true; reject_stop = false; stop_writes = start_writes = 0; fail_start = deliver_start = fail_status = false;
     g.high_pct[HTR_WIRING_3W] = 100; fake_ctx[0].probe_answer = HTR_PROBE_FOUND;
     coproc_boot();
     heater_init(&bridge, 0, now);
@@ -144,7 +153,48 @@ void test_start_command_starts_through_the_request(void){
     TEST_ASSERT_TRUE(heater_send_command(HTR_CMD_STOP)); both_to(8200);
     TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
 }
+static void test_ambiguous_start_delivered(void)
+{
+    both_to(7000);
+    unsigned stops = stop_writes;
+    fail_start = deliver_start = true;
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    both_to(8000);
+    TEST_ASSERT_EQUAL_UINT(1, start_writes);
+    TEST_ASSERT_EQUAL_UINT(1, fake_ctx[0].starts);
+    TEST_ASSERT_EQUAL_UINT(stops, stop_writes);
+    TEST_ASSERT_EQUAL_UINT8(1, heater_get_request());
+}
+
+static void test_ambiguous_start_not_delivered(void)
+{
+    both_to(7000);
+    fail_start = true;
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    both_to(8000);
+    TEST_ASSERT_EQUAL_UINT(1, start_writes);
+    TEST_ASSERT_EQUAL_UINT(0, fake_ctx[0].starts);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+}
+
+static void test_ambiguous_start_expires_without_status(void)
+{
+    both_to(7000);
+    fail_start = deliver_start = true;
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    while (start_writes == 0) both_to(now + 10U);
+    fail_status = true;
+    both_to(now + HEATER_LOST_MS + 10U);
+    TEST_ASSERT_EQUAL_UINT(1, start_writes);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+}
+
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_ambiguous_start_delivered);
+    RUN_TEST(test_ambiguous_start_not_delivered);
+    RUN_TEST(test_ambiguous_start_expires_without_status);
     RUN_TEST(test_fault_then_clear_from_g0b1_does_not_reignite);
 
     RUN_TEST(test_coprocessor_reset_does_not_restart_on_a_stale_request);

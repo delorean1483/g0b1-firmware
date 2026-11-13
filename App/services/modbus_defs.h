@@ -30,7 +30,11 @@ typedef enum {
 #define MB_HEADER_SIZE 6u
 
 /* 80-83 are I2C2 recovery diagnostics; 84-91 are lamp verification diagnostics. */
+#ifdef HEATER_BENCH_FAULTS
+#define MB_REG_MAX     2131u
+#else
 #define MB_REG_MAX     2130u
+#endif
 #define MB_REG_LIMIT   (MB_REG_MAX + 1u)
 
 /* Diagnostics (FC 0x08) sub-functions. */

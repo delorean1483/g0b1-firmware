@@ -11,4 +11,7 @@ enum {
 void i2c_bench_stage(void *handle, uint16_t stage);
 /* reason 0: hardware error bits, 1: software timeout. Called BEFORE cleanup. */
 void i2c_bench_error(void *handle, uint32_t isr, uint16_t reason);
+#ifdef HEATER_BENCH_FAULTS
+int i2c_heater_bench_abort(void *handle);
+#endif
 #endif

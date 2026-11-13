@@ -1,5 +1,9 @@
 #include "drv_i2c2_bus.h"
 #include "htr_i2c_map.h"
+#ifdef HEATER_BENCH_FAULTS
+#include "heater.h"
+static bool s_bench_abort;
+#endif
 #include "main.h"
 #include "mb_regmodel.h"
 #include "i2c_bench_trace.h"
@@ -267,6 +271,25 @@ static int recover_with_cooldown(void)
     return !s_clear_failed;
 }
 
+#ifdef HEATER_BENCH_FAULTS
+int i2c_heater_bench_abort(void *handle)
+{
+    if (handle != &hi2c2 || !heater_bench_take_midbyte()) return 0;
+    /* Count SCL transitions immediately after queueing the first data byte.
+       Bound the wait in case the slave stretches or the bus is already stuck. */
+    uint32_t prior = SCL_PORT->IDR & SCL_PIN;
+    unsigned rises = 0;
+    for (unsigned budget = 0; budget < 1200U && rises < 3U; ++budget) {
+        uint32_t current = SCL_PORT->IDR & SCL_PIN;
+        if (current && !prior) ++rises;
+        prior = current;
+    }
+    __HAL_I2C_DISABLE(&hi2c2);
+    s_bench_abort = true;
+    return 1;
+}
+#endif
+
 static int prepare_transfer(uint8_t addr7, uint8_t *buffer, uint16_t length)
 {
     int device = device_index(addr7);
@@ -314,6 +337,13 @@ static int transfer(int write, int retry, uint8_t addr7, uint8_t reg, uint8_t *b
             : HAL_I2C_Mem_Read(&hi2c2, (uint16_t)(addr7 << 1), reg,
                                I2C_MEMADD_SIZE_8BIT, buf, len, timeout_ms);
         log_result(write, attempt, addr7, reg, buf, len, status);
+#ifdef HEATER_BENCH_FAULTS
+        if (s_bench_abort) {
+            s_bench_abort = false;
+            (void)recover_with_cooldown();
+            return -1;
+        }
+#endif
         if (status == HAL_OK) {
             s_clear_failed = 0;
             s_transfer_failures = 0;

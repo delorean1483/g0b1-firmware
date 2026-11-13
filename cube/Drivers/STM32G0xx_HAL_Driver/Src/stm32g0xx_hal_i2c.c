@@ -2589,6 +2589,16 @@ HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *hi2c, uint16_t DevAddress
 
       /* Write data to TXDR */
       hi2c->Instance->TXDR = *hi2c->pBuffPtr;
+#ifdef HEATER_BENCH_FAULTS
+      if (i2c_heater_bench_abort(hi2c))
+      {
+        hi2c->ErrorCode |= HAL_I2C_ERROR_BERR;
+        hi2c->State = HAL_I2C_STATE_READY;
+        hi2c->Mode = HAL_I2C_MODE_NONE;
+        __HAL_UNLOCK(hi2c);
+        return HAL_ERROR;
+      }
+#endif
 
       /* Increment Buffer pointer */
       hi2c->pBuffPtr++;

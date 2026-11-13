@@ -44,6 +44,7 @@ typedef struct {
 #define HEATER_FLAG_COMMS_FAULT (1U << 3) /* run requested but heater link not fresh */
 #define HEATER_FLAG_XPORT_FAULT (1U << 4) /* G0B1<->coprocessor I2C failed within 3 s */
 
+#define HEATER_FLAG_REQUEST_AGAIN (1U << 7)
 #define HEATER_FLAG_MAP_MISMATCH   (1U << 5) /* identity/version incompatible, writes blocked */
 #define HEATER_FLAG_MAP_UNREADABLE (1U << 6) /* identity unverified, writes blocked */
 
@@ -53,6 +54,12 @@ typedef struct {
 #define HEATER_POLL_VALID_STATUS (1U << 0)
 #define HEATER_POLL_WRITE_FAILED (1U << 1)
 #define HEATER_POLL_RECOVERY     (1U << 2)
+#ifdef HEATER_BENCH_FAULTS
+#define HEATER_BENCH_REG 2131U
+bool heater_bench_arm(uint16_t mode);
+uint16_t heater_bench_pending(void);
+bool heater_bench_take_midbyte(void);
+#endif
 #define HEATER_POLL_LOG_BASE 2016U
 #define HEATER_POLL_LOG_WORDS 7U
 #define HEATER_POLL_LOG_SLOTS 16U
@@ -73,7 +80,7 @@ void heater_note_cortex_traffic(uint32_t now);
 void heater_set_poll_clock(uint32_t (*clock_ms)(void));
 uint16_t heater_poll_diagnostic(uint16_t reg);
 void    heater_process(uint32_t now);
-void    heater_set_request(uint8_t on);
+bool    heater_set_request(uint8_t on);
 uint8_t heater_get_request(void);
 void    heater_set_level(uint8_t level);          /* 1..10, else ignored */
 uint8_t heater_get_level(void);

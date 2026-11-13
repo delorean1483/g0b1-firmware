@@ -17,6 +17,13 @@ void setUp(void) {
 void tearDown(void) {}
 
 static void test_write_request_and_level(void) {
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(53U, 1U));
+    uint16_t flags;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(64U, &flags));
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, flags);
+    heater_note_cortex_traffic(0U);
+    heater_process(0U);
+    heater_process(250U);
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(53U, 1U));
     TEST_ASSERT_EQUAL_UINT8(1U, heater_get_request());
     TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(54U, 7U));

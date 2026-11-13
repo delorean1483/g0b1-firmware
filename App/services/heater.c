@@ -6,6 +6,32 @@
 static const i2c_backend_t *s_bus;
 static void (*s_reset)(void);
 static uint8_t s_request;
+static bool s_start_unconfirmed, s_request_again, s_start_expired, s_start_armed;
+static uint32_t s_start_at;
+#ifdef HEATER_BENCH_FAULTS
+/* 1 interrupts the next settings write, 2 masks a delivered START,
+   3 starts one bounded heartbeat freeze. */
+static uint16_t s_bench_mode;
+static bool s_midbyte_target, s_freeze_active;
+static uint32_t s_freeze_at;
+
+bool heater_bench_arm(uint16_t mode)
+{
+    if (mode > 3U || (mode && (s_bench_mode || s_freeze_active))) return false;
+    s_bench_mode = mode;
+    s_freeze_active = false;
+    return true;
+}
+
+uint16_t heater_bench_pending(void) { return s_bench_mode; }
+
+bool heater_bench_take_midbyte(void)
+{
+    if (!s_midbyte_target || s_bench_mode != 1U) return false;
+    s_bench_mode = 0U;
+    return true;
+}
+#endif
 static bool s_cortex_seen, s_silence_stop, s_cortex_silent;
 static uint8_t s_silence_attempts;
 static bool s_silence_verify, s_local_stop_seen;
@@ -73,6 +99,10 @@ static uint16_t sat16(uint32_t v) { return (v > 0xFFFFU) ? 0xFFFFU : (uint16_t)v
 void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t now)
 {
     s_bus = bus;
+#ifdef HEATER_BENCH_FAULTS
+    s_bench_mode = 0U;
+    s_midbyte_target = s_freeze_active = false;
+#endif
     s_cortex_seen = s_silence_stop = s_cortex_silent = false;
     s_silence_attempts = 0U;
     s_silence_verify = s_local_stop_seen = false;
@@ -169,7 +199,11 @@ static void close_write_gate(uint16_t fault)
     s_identified = 0U;
     s_status_seen = false;
     s_map_fault = fault;
-    if (fault == HEATER_FLAG_MAP_MISMATCH) s_request = 0U;
+    if (fault == HEATER_FLAG_MAP_MISMATCH) {
+        s_request = 0U;
+        s_start_unconfirmed = s_start_expired = false;
+    }
+    s_start_armed = false;
     s_cmd_pending = 0U;
     s_type_pending = 0U;
 }
@@ -179,6 +213,7 @@ static void latch_cortex_silence(void)
     if (s_cortex_silent) return;
     s_cortex_silent = true;
     s_silence_stop = true;
+    s_start_unconfirmed = s_start_expired = false;
     s_silence_attempts = HEATER_SILENCE_STOP_ATTEMPTS;
     s_silence_verify = false;
     s_request = 0U;
@@ -224,7 +259,18 @@ static int write_checked(uint8_t reg, const uint8_t *data, uint16_t len)
         close_write_gate(0U);
         return -1;
     }
+#ifdef HEATER_BENCH_FAULTS
+    s_midbyte_target = reg == HTR_R_LEVEL && len == 4U;
+#endif
     int result = s_bus->write(s_bus->ctx, reg, data, len);
+#ifdef HEATER_BENCH_FAULTS
+    s_midbyte_target = false;
+    if (s_bench_mode == 2U && reg == HTR_R_RUN_REQUEST && len == 1U &&
+        data[0] == HTR_RUN_KEY) {
+        s_bench_mode = 0U;
+        if (result == 0) result = -1;
+    }
+#endif
     if (recovery_changed()) {
         close_write_gate(0U);
         return -1;
@@ -265,6 +311,11 @@ void heater_process(uint32_t now)
     uint8_t ctl[5];
     if (s_bus == NULL) return;
 
+    if (s_start_unconfirmed && (uint32_t)(now - s_start_at) >= HEATER_LOST_MS) {
+        s_start_unconfirmed = false;
+        s_start_expired = s_request_again = true;
+        s_request = 0U;
+    }
     bool logged = false;
     uint16_t poll_flags = 0U;
     uint32_t due = now;
@@ -304,6 +355,7 @@ void heater_process(uint32_t now)
         ((m[HTR_R_PHASE] == HTR_PHASE_DETECTING && s_t.phase != HTR_PHASE_DETECTING) ||
          (frames < s_t.valid_frames && (uint16_t)(frames - s_t.valid_frames) >= 0x8000u));
     if (reset_hint) {
+        s_start_unconfirmed = s_start_expired = false;
         s_request = 0U;
         close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
         if (!check_map(now)) goto lost_check;
@@ -313,11 +365,18 @@ void heater_process(uint32_t now)
     decode_status(m);
     s_status_seen = true;
     uint16_t flags = le16(m, HTR_R_FLAGS);
+    s_start_armed = (flags & HTR_F_START_ARMED) != 0U;
     bool stopped_locally = (flags & (HTR_F_HOST_TIMEOUT_STOP | HTR_F_START_REFUSED)) != 0U;
     if (s_t.phase == HTR_PHASE_FAULT || (stopped_locally && !s_local_stop_seen)) {
         s_request = 0U;
         if (s_cmd_pending == HTR_CMD_START) s_cmd_pending = 0U;
     }
+    if (s_start_unconfirmed) {
+        s_start_unconfirmed = false;
+        s_request = m[HTR_R_RUN_REQUEST] == HTR_RUN_KEY;
+        s_request_again = !s_request;
+    }
+    if (s_start_expired && m[HTR_R_RUN_REQUEST] == 0U) s_start_expired = false;
     s_local_stop_seen = stopped_locally;
     if (s_silence_stop && m[HTR_R_RUN_REQUEST] == 0U) s_silence_stop = false;
     poll_flags |= HEATER_POLL_VALID_STATUS;
@@ -326,8 +385,22 @@ void heater_process(uint32_t now)
         goto publish;
     }
 
+    /* Let the local watchdog expire if a lost confirmation could hide
+       an accepted START. Explicit OFF can still clear the latch and stop. */
+    if (s_start_expired) goto publish;
+
     const uint8_t heartbeat = (uint8_t)(m[HTR_R_HOST_HEARTBEAT] + 1U);
-    if (write_checked(HTR_R_HOST_HEARTBEAT, &heartbeat, 1U) != 0) goto write_failed;
+#ifdef HEATER_BENCH_FAULTS
+    if (s_bench_mode == 3U) {
+        s_bench_mode = 0U;
+        s_freeze_active = true;
+        s_freeze_at = now;
+    }
+    if (s_freeze_active && (uint32_t)(now - s_freeze_at) >= (HEATER_HOST_TIMEOUT_S + 2U) * 1000U)
+        s_freeze_active = false;
+    if (!s_freeze_active)
+#endif
+        if (write_checked(HTR_R_HOST_HEARTBEAT, &heartbeat, 1U) != 0) goto write_failed;
     if (m[HTR_R_HOST_TIMEOUT_S] != HEATER_HOST_TIMEOUT_S && !s_silence_stop) {
         const uint8_t timeout = HEATER_HOST_TIMEOUT_S;
         if (write_checked(HTR_R_HOST_TIMEOUT_S, &timeout, 1U) != 0) goto write_failed;
@@ -340,12 +413,16 @@ void heater_process(uint32_t now)
     ctl[4] = (uint8_t)((uint16_t)s_ambient_x10 >> 8);
     /* Compare the prior write against the next fresh status snapshot.
        Keep RUN_REQUEST out of level/setpoint writes and ambient atomic. */
-    if (ctl[0] != m[HTR_R_RUN_REQUEST] || (!ctl[0] && !(flags & HTR_F_START_ARMED))) {
+    if (!s_start_unconfirmed && !s_start_expired &&
+        (ctl[0] != m[HTR_R_RUN_REQUEST] || (!ctl[0] && !s_start_armed))) {
         if (ctl[0] != 0U && !(flags & HTR_F_START_ARMED)) {
             s_request = 0U;
         } else if (write_checked(HTR_R_RUN_REQUEST, ctl, 1U) != 0) {
             /* Ambiguous delivery must never replay a keyed START. */
-            if (ctl[0] != 0U) s_request = 0U;
+            if (ctl[0] != 0U && s_request != 0U) {
+                s_start_unconfirmed = true;
+                s_start_at = s_poll_clock ? s_poll_clock() : now;
+            }
             goto write_failed;
         }
     }
@@ -381,6 +458,8 @@ publish:
         log_poll(due, now, poll_flags);
     }
     s_t.present = s_identified;
+    if (s_request_again) s_t.flags |= HEATER_FLAG_REQUEST_AGAIN;
+    else s_t.flags &= (uint16_t)~HEATER_FLAG_REQUEST_AGAIN;
     s_t.flags = (uint16_t)((s_t.flags & ~(HEATER_FLAG_MAP_MISMATCH | HEATER_FLAG_MAP_UNREADABLE)) |
                           s_map_fault);
     s_t.target_level = s_level;
@@ -397,7 +476,21 @@ publish:
     }
 }
 
-void    heater_set_request(uint8_t on) { s_request = (on != 0U && !s_silence_stop && s_map_fault != HEATER_FLAG_MAP_MISMATCH) ? 1U : 0U; }
+bool heater_set_request(uint8_t on)
+{
+    if (on && (s_silence_stop || s_start_expired ||
+               s_map_fault == HEATER_FLAG_MAP_MISMATCH ||
+               (!s_request && (!s_identified || !s_start_armed)))) {
+        s_request_again = true;
+        s_t.flags |= HEATER_FLAG_REQUEST_AGAIN;
+        return false;
+    }
+    s_request_again = false;
+    s_t.flags &= (uint16_t)~HEATER_FLAG_REQUEST_AGAIN;
+    if (!on) s_start_unconfirmed = s_start_expired = false;
+    s_request = on != 0U;
+    return true;
+}
 uint8_t heater_get_request(void) { return s_request; }
 void    heater_set_level(uint8_t level) { if ((level >= 1U) && (level <= 10U)) s_level = level; }
 uint8_t heater_get_level(void) { return s_level; }

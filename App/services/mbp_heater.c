@@ -8,8 +8,7 @@ static modbus_exc_t rd_request(uint16_t reg, uint16_t *o) { (void)reg; *o = heat
 static modbus_exc_t wr_request(uint16_t reg, uint16_t v) {
     (void)reg;
     if (v > 1U) { return MB_EXC_ILLEGAL_VALUE; }
-    heater_set_request((uint8_t)v);
-    return MB_EXC_NONE;
+    return heater_set_request((uint8_t)v) ? MB_EXC_NONE : MB_EXC_ILLEGAL_VALUE;
 }
 static modbus_exc_t rd_level(uint16_t reg, uint16_t *o) { (void)reg; *o = heater_get_level(); return MB_EXC_NONE; }
 static modbus_exc_t wr_level(uint16_t reg, uint16_t v) {
@@ -39,6 +38,21 @@ static modbus_exc_t wr_command(uint16_t reg, uint16_t v) {
     if ((v > 0xFFU) || !heater_send_command((uint8_t)v)) { return MB_EXC_ILLEGAL_VALUE; }
     return MB_EXC_NONE;
 }
+
+#ifdef HEATER_BENCH_FAULTS
+static modbus_exc_t rd_bench(uint16_t reg, uint16_t *value)
+{
+    (void)reg;
+    *value = heater_bench_pending();
+    return MB_EXC_NONE;
+}
+
+static modbus_exc_t wr_bench(uint16_t reg, uint16_t value)
+{
+    (void)reg;
+    return heater_bench_arm(value) ? MB_EXC_NONE : MB_EXC_ILLEGAL_VALUE;
+}
+#endif
 
 static modbus_exc_t rd_poll_log(uint16_t reg, uint16_t *value)
 {
@@ -82,6 +96,9 @@ void mbp_heater_register(void) {
     mb_reg_bind(63, rd_age_ms,            0);
     for (uint16_t reg = HEATER_POLL_LOG_BASE; reg <= HEATER_POLL_MAX_GAP_HI; ++reg)
         mb_reg_bind(reg, rd_poll_log, 0);
+#ifdef HEATER_BENCH_FAULTS
+    mb_reg_bind(HEATER_BENCH_REG, rd_bench, wr_bench);
+#endif
     mb_reg_bind(64, rd_flags,             0);
     mb_reg_bind(65, rd_valid_frames,      0);
     mb_reg_bind(66, rd_checksum_failures, 0);
