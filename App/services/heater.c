@@ -41,7 +41,7 @@ void heater_bench_log_midbyte(uint16_t mode, bool edge_seen, unsigned bits_sent)
     s_bench_poll_flags |= (uint16_t)((bits_sent & 0xFu) << HEATER_POLL_ABORT_BITS_SHIFT);
 }
 #endif
-static bool s_cortex_seen, s_silence_stop, s_cortex_silent;
+static bool s_cortex_seen, s_silence_stop, s_cortex_silent, s_refuse_on_after_silence;
 static uint8_t s_silence_attempts;
 static bool s_silence_verify, s_local_stop_seen;
 #define HEATER_SILENCE_STOP_ATTEMPTS 3U
@@ -113,6 +113,7 @@ void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t 
     s_midbyte_target = s_freeze_active = false;
 #endif
     s_cortex_seen = s_silence_stop = s_cortex_silent = false;
+    s_refuse_on_after_silence = false;
     s_silence_attempts = 0U;
     s_silence_verify = s_local_stop_seen = false;
     s_cortex_at = now;
@@ -225,6 +226,7 @@ static void latch_cortex_silence(void)
     if (s_cortex_silent) return;
     s_cortex_silent = true;
     s_silence_stop = true;
+    if (s_request || s_on_held) s_refuse_on_after_silence = true;
     s_start_unconfirmed = s_start_expired = false;
     s_silence_attempts = HEATER_SILENCE_STOP_ATTEMPTS;
     s_silence_verify = false;
@@ -525,9 +527,11 @@ publish:
 
 bool heater_set_request(uint8_t on)
 {
+    bool refuse_after_silence = on && s_refuse_on_after_silence;
+    s_refuse_on_after_silence = false;
     bool hold = on && !s_request && s_ever_identified &&
                 (!s_identified || recovery_changed());
-    if (on && (s_silence_stop || s_start_expired ||
+    if (on && (refuse_after_silence || s_silence_stop || s_start_expired ||
                s_map_fault == HEATER_FLAG_MAP_MISMATCH ||
                (!hold && !s_request && (!s_identified || !s_start_armed)))) {
         s_request_again = true;
@@ -562,7 +566,7 @@ void    heater_set_ambient_f(int16_t deg_f)
 bool heater_send_command(uint8_t cmd)
 {
     if ((cmd < HTR_CMD_START) || (cmd > HTR_CMD_AUTO_DETECT)) return false;
-    if (cmd == HTR_CMD_START && (s_silence_stop || s_map_fault != 0U)) return false;
+    if (cmd == HTR_CMD_START && s_map_fault != 0U) return false;
     if (cmd == HTR_CMD_START || cmd == HTR_CMD_STOP) {
         return heater_set_request(cmd == HTR_CMD_START);
     }
