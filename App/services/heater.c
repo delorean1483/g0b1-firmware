@@ -411,6 +411,9 @@ void heater_process(uint32_t now)
         s_request_again = !s_request;
     }
     if (s_t.phase == HTR_PHASE_FAULT || (stopped_locally && !s_local_stop_seen)) {
+        /* The coprocessor refused or timed out a request we hold: tell the
+           user (REQUEST_AGAIN). A FAULT shows as a fault instead. */
+        if (s_request != 0U && s_t.phase != HTR_PHASE_FAULT) s_request_again = true;
         s_request = 0U;
         if (s_cmd_pending == HTR_CMD_START) s_cmd_pending = 0U;
     }
@@ -459,7 +462,8 @@ void heater_process(uint32_t now)
     if (!s_start_unconfirmed && !s_start_expired &&
         (ctl[0] != m[HTR_R_RUN_REQUEST] || (!ctl[0] && !s_start_armed))) {
         if (ctl[0] != 0U && !(flags & HTR_F_START_ARMED)) {
-            s_request = 0U;
+            s_request = 0U;              /* the coprocessor can't take it now */
+            s_request_again = true;
         } else if (write_checked(HTR_R_RUN_REQUEST, ctl, 1U) != 0) {
             /* Ambiguous delivery must never replay a keyed START. */
             if (ctl[0] != 0U && s_request != 0U) {

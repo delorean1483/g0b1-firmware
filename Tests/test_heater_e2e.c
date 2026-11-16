@@ -120,6 +120,7 @@ void test_on_during_cooldown_is_refused_and_never_held(void){
     TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_COOLDOWN, tel().phase);
     heater_set_request(1); both_to(11000);                    /* tap 1 */
     TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_TRUE(tel().flags & HEATER_FLAG_REQUEST_AGAIN); /* the user is told */
     heater_set_request(1); both_to(12000);                    /* tap 2 */
     TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
     fake_ctx[0].hint = HTR_HINT_OFF; both_to(20000);
@@ -127,6 +128,7 @@ void test_on_during_cooldown_is_refused_and_never_held(void){
     TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);                /* nothing was held */
     TEST_ASSERT_TRUE(heater_set_request(1)); both_to(20600);
     TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
+    TEST_ASSERT_FALSE(tel().flags & HEATER_FLAG_REQUEST_AGAIN);
 }
 void test_cortex_silence_sends_verified_stop(void)
 {
