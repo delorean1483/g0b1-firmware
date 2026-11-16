@@ -243,6 +243,11 @@ static void run_step(uint32_t now)
                mid-run, or a start processed after a no-op stop): stop it. */
             s_drv->stop(s_drv->ctx);
             set_phase(HTR_PHASE_STOP_REQUESTED, now);
+        } else if (h == HTR_HINT_COOLDOWN) {
+            /* Heater still cooling (coprocessor reset during cooldown, or a
+               fault cleared before standby): track it, so a start is refused
+               until standby instead of faulting on the cooldown report. */
+            set_phase(HTR_PHASE_COOLDOWN, now);
         } else if ((s_type_setting == HTR_TYPE_AUTO) &&
                    ((uint32_t)(now - s_stale_since) >= HTR_HOTSWAP_MS)) {
             begin_sense(now);                     /* hot-swap: only while OFF */
@@ -363,6 +368,8 @@ uint8_t htr_fsm_reinit_iface(uint32_t now)
 {
     return htr_fsm_redetect(now);   /* re-runs the interface bring-up + driver init */
 }
+
+uint8_t htr_fsm_phase(void) { return s_phase; }
 
 void htr_fsm_view(uint32_t now, htr_fsm_view_t *out)
 {

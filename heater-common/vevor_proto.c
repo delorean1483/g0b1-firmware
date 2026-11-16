@@ -5,6 +5,12 @@
 #define VEVOR_RX_POLL_INTERVAL_MS    10UL
 #define VEVOR_RESPONSE_FRESH_MS    3000UL
 #define VEVOR_START_FRAME_COUNT       4U
+/* A frame takes ~117 ms at 4800 baud, its bytes back to back; 30 ms with no
+   byte mid-frame (~14 byte times) means it was cut short. */
+#define VEVOR_RX_GAP_MS              30UL
+/* Supply byte [11] is in 0.1 V: 0 in standby, else a real battery. Below
+   8.0 V is a corrupted frame (bench: "6.4 V" from an oscillating RX). */
+#define VEVOR_SUPPLY_MIN_DV          80U
 
 uint8_t VEVOR_Checksum(const uint8_t *frame, uint8_t checksum_index)
 {
@@ -48,6 +54,14 @@ static bool decode_response(VEVOR_t *heater, const uint8_t *frame,
 {
     if ((frame[0] != 0xAAU) || (frame[1] != 0x77U) ||
         (VEVOR_Checksum(frame, 55U) != frame[55])) {
+        heater->checksum_failures++;
+        return false;
+    }
+    /* The 8-bit sum let corrupted frames through on the bench: also require
+       fields a heater can report (state 0..4, level 0..10, supply 0 or
+       >= 8.0 V). Every frame in the bench captures passes. */
+    if ((frame[5] > (uint8_t)VEVOR_REPORTED_COOLDOWN) || (frame[6] > 10U) ||
+        ((frame[11] != 0U) && (frame[11] < VEVOR_SUPPLY_MIN_DV))) {
         heater->checksum_failures++;
         return false;
     }
@@ -102,6 +116,7 @@ bool VEVOR_Init(VEVOR_t *heater, const htr_uart_t *uart, uint32_t now)
     /* Arrange for an immediate conservative STOP poll. */
     heater->last_tx_tick = now - VEVOR_TX_INTERVAL_MS;
     heater->last_rx_poll_tick = now;
+    heater->last_rx_byte_tick = now;
     return true;
 }
 
@@ -154,6 +169,15 @@ void VEVOR_Process(VEVOR_t *heater, uint32_t now)
         heater->last_rx_poll_tick = now;
         count = heater->uart->read(heater->uart->ctx, data, sizeof(data));
         for (i = 0U; i < count; ++i) parse_byte(heater, data[i], now);
+        if (count != 0U) {
+            heater->last_rx_byte_tick = now;
+        } else if ((heater->rx_index != 0U) &&
+                   ((uint32_t)(now - heater->last_rx_byte_tick) >= VEVOR_RX_GAP_MS)) {
+            /* Frame cut short: drop it and resync on the next AA 77, instead
+               of letting it swallow the start of the next frame. */
+            if (heater->rx_index >= 2U) heater->checksum_failures++;
+            heater->rx_index = 0U;
+        }
     }
 
     if ((uint32_t)(now - heater->last_tx_tick) < VEVOR_TX_INTERVAL_MS) return;

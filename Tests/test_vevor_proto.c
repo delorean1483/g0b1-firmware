@@ -60,7 +60,63 @@ void test_process_over_uart_seam(void){
     u.refuse_write=true; VEVOR_Process(&v,1000U);
     TEST_ASSERT_EQUAL_UINT32(1,v.transport_errors);
 }
+/* A frame whose 8-bit sum passes but whose fields are impossible (seen on
+   the bench while the RX comparator oscillated: state 0x40, "6.4 V") is
+   counted as a bad frame, not decoded. */
+static void inject_frame(fake_uart_t *u, uint8_t state, uint8_t level, uint8_t supply){
+    uint8_t r[56]={0}; r[0]=0xAA; r[1]=0x77; r[2]=0x02; r[3]=0x33;
+    r[5]=state; r[6]=level; r[11]=supply; r[55]=VEVOR_Checksum(r,55U);
+    fake_uart_inject(u,r,56);
+}
+void test_implausible_frames_are_rejected(void){
+    fake_uart_t u; fake_uart_init(&u); VEVOR_t v;
+    VEVOR_Init(&v,&u.api,0U);
+    inject_frame(&u,0x40,1,120); VEVOR_Process(&v,10U);       /* state */
+    inject_frame(&u,3,1,64);     VEVOR_Process(&v,20U);       /* 6.4 V */
+    inject_frame(&u,3,11,120);   VEVOR_Process(&v,30U);       /* level */
+    TEST_ASSERT_EQUAL_UINT32(0,v.valid_frames);
+    TEST_ASSERT_EQUAL_UINT32(3,v.checksum_failures);
+    TEST_ASSERT_FALSE(v.status.valid);
+    inject_frame(&u,0,0,0);      VEVOR_Process(&v,40U);       /* standby: supply reads 0 */
+    inject_frame(&u,3,10,121);   VEVOR_Process(&v,50U);
+    TEST_ASSERT_EQUAL_UINT32(2,v.valid_frames);
+    TEST_ASSERT_EQUAL_UINT8(3,v.status.state);
+}
+/* A frame cut short by a glitch must not swallow the start of the next one:
+   a gap in the middle of a frame drops the partial frame. */
+void test_partial_frame_resyncs_after_a_gap(void){
+    fake_uart_t u; fake_uart_init(&u); VEVOR_t v;
+    VEVOR_Init(&v,&u.api,0U);
+    uint8_t part[22]={0}; part[0]=0xAA; part[1]=0x77;
+    fake_uart_inject(&u,part,sizeof part); VEVOR_Process(&v,10U);
+    VEVOR_Process(&v,20U); VEVOR_Process(&v,30U); VEVOR_Process(&v,40U); VEVOR_Process(&v,50U);
+    inject_frame(&u,3,5,122); VEVOR_Process(&v,60U);
+    TEST_ASSERT_EQUAL_UINT32(1,v.valid_frames);
+    TEST_ASSERT_EQUAL_UINT8(5,v.status.level);
+}
+/* Every frame in both bench captures still decodes through the parser. */
+static void feed_capture(const char *path, unsigned *frames, VEVOR_t *v, fake_uart_t *u){
+    static uint8_t buf[200000]; size_t n=load_hex(path,buf,sizeof buf);
+    *frames=0;
+    for(size_t i=0;i+56<=n;){ if(buf[i]==0xAA && buf[i+1]==0x77){ (*frames)++; i+=56; } else i++; }
+    uint32_t t=10U;
+    for(size_t off=0; off<n; off+=48){
+        size_t k = (n-off) < 48 ? (n-off) : 48;
+        fake_uart_inject(u,&buf[off],k); VEVOR_Process(v,t); t+=10U;
+    }
+}
+void test_capture_frames_all_decode(void){
+    fake_uart_t u; fake_uart_init(&u); VEVOR_t v; unsigned f1,f2;
+    VEVOR_Init(&v,&u.api,0U);
+    feed_capture("fixtures/capture1.hex",&f1,&v,&u);
+    feed_capture("fixtures/capture2.hex",&f2,&v,&u);
+    TEST_ASSERT_EQUAL_UINT32(f1+f2, v.valid_frames);
+    TEST_ASSERT_EQUAL_UINT32(0, v.checksum_failures);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_implausible_frames_are_rejected);
+    RUN_TEST(test_partial_frame_resyncs_after_a_gap);
+    RUN_TEST(test_capture_frames_all_decode);
     RUN_TEST(test_build_frames_byte_exact);
     RUN_TEST(test_capture_checksums_all_pass);
     RUN_TEST(test_process_over_uart_seam); return UNITY_END(); }
