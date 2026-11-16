@@ -214,6 +214,16 @@ void test_off_with_heater_reporting_cooldown_tracks_cooldown(void){
     fake_ctx[0].hint=HTR_HINT_OFF; tick_to(7000);
     TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, view().phase);
 }
+/* A heater that relights while we track its cooldown (a start it stored, or
+   its own panel) is stopped at once, not after the 15 min cooldown timeout. */
+void test_heater_relighting_during_cooldown_is_stopped(void){
+    boot_found_3w(); fake_ctx[0].hint=HTR_HINT_COOLDOWN; tick_to(6500);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_COOLDOWN, view().phase);
+    fake_ctx[0].hint=HTR_HINT_RUNNING; tick_to(7000);
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_STOP_REQUESTED, view().phase);
+    TEST_ASSERT_EQUAL(0u, fake_ctx[0].starts);
+}
 /* Finding 1: a standby report taken right after the stop may predate it. */
 void test_stop_requested_needs_a_settled_standby_report(void){
     boot_found_3w(); req(1); fake_ctx[0].hint=HTR_HINT_RUNNING; tick_to(7000);
@@ -248,6 +258,7 @@ void test_standby_before_heater_acts_on_start_is_not_a_fault(void){
 int main(void){ UNITY_BEGIN();
     RUN_TEST(test_off_with_heater_reporting_running_sends_stop);
     RUN_TEST(test_off_with_heater_reporting_cooldown_tracks_cooldown);
+    RUN_TEST(test_heater_relighting_during_cooldown_is_stopped);
     RUN_TEST(test_stop_requested_needs_a_settled_standby_report);
     RUN_TEST(test_type_change_rejected_in_fault);
     RUN_TEST(test_start_falling_to_cooldown_faults_promptly);

@@ -9,7 +9,9 @@
    byte mid-frame (~14 byte times) means it was cut short. */
 #define VEVOR_RX_GAP_MS              30UL
 /* Supply byte [11] is in 0.1 V: 0 in standby, else a real battery. Below
-   8.0 V is a corrupted frame (bench: "6.4 V" from an oscillating RX). */
+   8.0 V is a corrupted frame (bench: "6.4 V" from an oscillating RX). Only
+   while [10] is 0: supply may be 16-bit [10..11] ([10] is 0 in every 12 V
+   capture), and a 24 V heater above 25.5 V would put a small value in [11]. */
 #define VEVOR_SUPPLY_MIN_DV          80U
 
 uint8_t VEVOR_Checksum(const uint8_t *frame, uint8_t checksum_index)
@@ -59,9 +61,9 @@ static bool decode_response(VEVOR_t *heater, const uint8_t *frame,
     }
     /* The 8-bit sum let corrupted frames through on the bench: also require
        fields a heater can report (state 0..4, level 0..10, supply 0 or
-       >= 8.0 V). Every frame in the bench captures passes. */
+       >= 8.0 V while [10] is 0). Every frame in the bench captures passes. */
     if ((frame[5] > (uint8_t)VEVOR_REPORTED_COOLDOWN) || (frame[6] > 10U) ||
-        ((frame[11] != 0U) && (frame[11] < VEVOR_SUPPLY_MIN_DV))) {
+        ((frame[10] == 0U) && (frame[11] != 0U) && (frame[11] < VEVOR_SUPPLY_MIN_DV))) {
         heater->checksum_failures++;
         return false;
     }

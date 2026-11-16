@@ -281,6 +281,13 @@ static void run_step(uint32_t now)
         return;
     case HTR_PHASE_COOLDOWN:
         if (h == HTR_HINT_OFF) { set_phase(HTR_PHASE_OFF, now); return; }
+        if ((h == HTR_HINT_STARTING) || (h == HTR_HINT_RUNNING)) {
+            /* Relit with nobody asking (a start it stored, or its own panel):
+               stop it now, not at the cooldown timeout. */
+            s_drv->stop(s_drv->ctx);
+            set_phase(HTR_PHASE_STOP_REQUESTED, now);
+            return;
+        }
         if ((uint32_t)(now - s_phase_tick) >= HTR_COOLDOWN_TIMEOUT_MS) enter_fault(now);
         return;
     default:  /* FAULT: keep talking, wait for CLEAR_FAULT; re-stop a heater still burning */

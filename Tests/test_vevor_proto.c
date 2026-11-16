@@ -82,6 +82,18 @@ void test_implausible_frames_are_rejected(void){
     TEST_ASSERT_EQUAL_UINT32(2,v.valid_frames);
     TEST_ASSERT_EQUAL_UINT8(3,v.status.state);
 }
+/* Supply may be 16-bit [10..11] (byte [10] is 0 in every 12 V capture): a
+   24 V heater above 25.5 V puts a small value in [11]. Don't reject it. */
+void test_supply_floor_only_applies_while_byte_10_is_zero(void){
+    fake_uart_t u; fake_uart_init(&u); VEVOR_t v;
+    VEVOR_Init(&v,&u.api,0U);
+    uint8_t r[56]={0}; r[0]=0xAA; r[1]=0x77; r[2]=0x02; r[3]=0x33;
+    r[5]=3; r[6]=5; r[10]=0x01; r[11]=0x14;                  /* 0x0114 = 27.6 V */
+    r[55]=VEVOR_Checksum(r,55U);
+    fake_uart_inject(&u,r,56); VEVOR_Process(&v,10U);
+    TEST_ASSERT_EQUAL_UINT32(1,v.valid_frames);
+    TEST_ASSERT_EQUAL_UINT32(0,v.checksum_failures);
+}
 /* A frame cut short by a glitch must not swallow the start of the next one:
    a gap in the middle of a frame drops the partial frame. */
 void test_partial_frame_resyncs_after_a_gap(void){
@@ -99,9 +111,9 @@ static void feed_capture(const char *path, unsigned *frames, VEVOR_t *v, fake_ua
     static uint8_t buf[200000]; size_t n=load_hex(path,buf,sizeof buf);
     *frames=0;
     for(size_t i=0;i+56<=n;){ if(buf[i]==0xAA && buf[i+1]==0x77){ (*frames)++; i+=56; } else i++; }
-    uint32_t t=10U;
-    for(size_t off=0; off<n; off+=48){
-        size_t k = (n-off) < 48 ? (n-off) : 48;
+    uint32_t t=10U;   /* ~line rate: 4800 baud is ~4.8 bytes per 10 ms poll */
+    for(size_t off=0; off<n; off+=5){
+        size_t k = (n-off) < 5 ? (n-off) : 5;
         fake_uart_inject(u,&buf[off],k); VEVOR_Process(v,t); t+=10U;
     }
 }
@@ -116,6 +128,7 @@ void test_capture_frames_all_decode(void){
 int main(void){ UNITY_BEGIN();
     RUN_TEST(test_implausible_frames_are_rejected);
     RUN_TEST(test_partial_frame_resyncs_after_a_gap);
+    RUN_TEST(test_supply_floor_only_applies_while_byte_10_is_zero);
     RUN_TEST(test_capture_frames_all_decode);
     RUN_TEST(test_build_frames_byte_exact);
     RUN_TEST(test_capture_checksums_all_pass);
