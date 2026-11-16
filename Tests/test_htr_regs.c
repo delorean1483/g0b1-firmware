@@ -157,7 +157,8 @@ void test_start_needs_a_live_heartbeat(void){
     TEST_ASSERT_EQUAL_UINT8(HTR_RES_NO_HOST, rd8(HTR_R_CMD_RESULT));
     uint16_t f = rd16(HTR_R_FLAGS);
     TEST_ASSERT_TRUE(f & HTR_F_START_REFUSED); TEST_ASSERT_FALSE(f & HTR_F_HOST_LIVE);
-    start_keyed();                                            /* heartbeat + key in one go */
+    TEST_ASSERT_FALSE(f & HTR_F_START_ARMED);                 /* a refusal disarms */
+    arm(); start_keyed();                                     /* re-arm, then heartbeat + key */
     TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
     f = rd16(HTR_R_FLAGS);
     TEST_ASSERT_TRUE(f & HTR_F_HOST_LIVE); TEST_ASSERT_FALSE(f & HTR_F_START_REFUSED);
@@ -213,8 +214,55 @@ void test_host_timeout_stop_needs_a_fresh_request(void){
     TEST_ASSERT_EQUAL_UINT8(HTR_RES_NOT_ARMED, rd8(HTR_R_CMD_RESULT));
     TEST_ASSERT_TRUE(rd16(HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP);
     arm(); loop_to(now + 20u);                                /* host acknowledges with a stop */
-    TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP);
+    TEST_ASSERT_TRUE(rd16(HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP);  /* still visible afterwards */
     start_keyed();
+    TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
+    TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP); /* the accepted start clears it */
+}
+/* A keyed start is accepted only while the heater is idle (phase OFF). One
+   that lands while it is stopping or cooling down is refused, never held:
+   held, it would restart the heater minutes later when cooldown reached
+   standby (a stale or replayed ON from the host). */
+void test_start_is_refused_until_the_heater_is_idle(void){
+    boot(); loop_to(7000); live_armed(); start_keyed();
+    fake_ctx[0].hint = HTR_HINT_RUNNING; loop_hb_to(now + 1000u);
+    arm(); loop_hb_to(now + 100u);                            /* host stop */
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_STOP_REQUESTED, rd8(HTR_R_PHASE));
+    start_keyed();
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_EQUAL_HEX8(0, rd8(HTR_R_RUN_REQUEST));
+    TEST_ASSERT_TRUE(rd16(HTR_R_FLAGS) & HTR_F_START_REFUSED);
+    fake_ctx[0].hint = HTR_HINT_COOLDOWN; loop_hb_to(now + 500u);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_COOLDOWN, rd8(HTR_R_PHASE));
+    arm(); start_keyed();
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_EQUAL_HEX8(0, rd8(HTR_R_RUN_REQUEST));
+    TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_START_ARMED); /* a refusal disarms... */
+    arm(); loop_hb_to(now + 100u);                            /* ...the host's RUN 0 re-arms */
+    start_keyed();                                            /* second tap: refused again */
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, rd8(HTR_R_CMD_RESULT));
+    settle_off();
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, rd8(HTR_R_PHASE));
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);                /* nothing restarted at standby */
+    arm(); start_keyed();                                     /* the user's next ON */
+    TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_OK, rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_START_REFUSED);
+}
+/* Same in FAULT: a start re-armed by the host's stop is refused, not held
+   until a CLEAR_FAULT sends the FSM back to OFF. */
+void test_start_is_refused_in_fault_and_not_held_for_the_clear(void){
+    boot(); loop_to(7000); live_armed(); start_keyed();
+    fake_ctx[0].hint = HTR_HINT_FAULT; loop_hb_to(now + 500u);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_FAULT, rd8(HTR_R_PHASE));
+    arm(); start_keyed();
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, rd8(HTR_R_CMD_RESULT));
+    fake_ctx[0].hint = HTR_HINT_OFF; loop_hb_to(now + 500u);
+    mwrite1(HTR_R_COMMAND, HTR_CMD_CLEAR_FAULT); loop_hb_to(now + 500u);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, rd8(HTR_R_PHASE));
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
+    arm(); start_keyed();
     TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
 }
 void test_host_timeout_setting_applies(void){
@@ -334,6 +382,8 @@ int main(void){ UNITY_BEGIN();
     RUN_TEST(test_reads_and_a_stuck_heartbeat_do_not_keep_the_host_live);
     RUN_TEST(test_changing_heartbeat_keeps_the_host_live);
     RUN_TEST(test_host_timeout_stop_needs_a_fresh_request);
+    RUN_TEST(test_start_is_refused_until_the_heater_is_idle);
+    RUN_TEST(test_start_is_refused_in_fault_and_not_held_for_the_clear);
     RUN_TEST(test_host_timeout_setting_applies);
     RUN_TEST(test_host_idle_counts_from_the_last_valid_heartbeat);
     RUN_TEST(test_commands);

@@ -45,8 +45,9 @@ typedef struct {
     uint8_t rx_index;
     uint32_t last_tx_tick;
     uint32_t last_rx_poll_tick;
+    uint32_t last_rx_byte_tick;   /* last poll that read any byte (gap resync) */
     uint32_t valid_frames;
-    uint32_t checksum_failures;
+    uint32_t checksum_failures;   /* bad frames: sum, impossible fields, or cut short */
     uint32_t transport_errors;
     VEVOR_Status_t status;
 } VEVOR_t;

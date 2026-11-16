@@ -191,15 +191,23 @@ static bool host_live(uint32_t now)
     return s_hb_have && ((uint32_t)(now - s_host_last) < (uint32_t)s_timeout_s * 1000u);
 }
 
-/* A stop the host asked for: always accepted, and it arms the next start. */
+/* A stop the host asked for: always accepted, and it arms the next start.
+   HOST_TIMEOUT_STOP survives it (cleared only by the next accepted start),
+   so a timeout stop stays visible after the host comes back. */
 static void clean_stop(void)
 {
     s_rq.run = 0u;
     s_armed = true;
     s_refused = false;
-    s_host_stop = false;
 }
 
+/* A keyed start is accepted only while the heater is idle (FSM phase OFF).
+   One that lands while it is stopping, cooling down, detecting or in FAULT
+   is refused BUSY and never held: held, it would restart the heater minutes
+   later when cooldown reached standby (a stale or replayed ON).
+   Every refusal also disarms. The G0B1 drops its request whenever START is
+   not armed, whatever the START_REFUSED edge (a second refusal in a row
+   raises none), and its RUN 0 re-arms for the user's next ON. */
 static void keyed_start(uint32_t now)
 {
     uint8_t res = HTR_RES_OK;
@@ -207,11 +215,13 @@ static void keyed_start(uint32_t now)
     if (s_type_setting == HTR_TYPE_NONE) res = HTR_RES_NO_TYPE;
     else if (!host_live(now)) res = HTR_RES_NO_HOST;
     else if (!s_armed) res = HTR_RES_NOT_ARMED;
+    else if (htr_fsm_phase() != HTR_PHASE_OFF) res = HTR_RES_BUSY;
     s_cmd_result = res;
-    if (res != HTR_RES_OK) { s_refused = true; return; }
+    if (res != HTR_RES_OK) { s_refused = true; s_armed = false; return; }
     s_rq.run = 1u;
     s_armed = false;
     s_refused = false;
+    s_host_stop = false;
 }
 
 static void run_command(uint8_t cmd, uint32_t now)

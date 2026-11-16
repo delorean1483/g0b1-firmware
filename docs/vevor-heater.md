@@ -84,7 +84,7 @@ The heater is bound to Modbus **registers 53–67** via `mbp_heater_register()` 
 | 63 | `age_ms` | U16 | RO | Age of the telemetry sample (milliseconds since last valid frame) |
 | 64 | `flags` | U16 | RO | Bit flags (see table below) |
 | 65 | `valid_frames` | U16 | RO | Count of valid heater frames received (diagnostic) |
-| 66 | `checksum_failures` | U16 | RO | Count of checksum failures (diagnostic) |
+| 66 | `checksum_failures` | U16 | RO | Count of bad heater frames (diagnostic): checksum failures and, from coprocessor fw 0.2.2, frames with impossible fields (state > 4, level > 10, supply 0.1–7.9 V) or cut short (≥ 30 ms gap mid-frame, then resync on `AA 77`) |
 | 67 | `transport_errors` | U16 | RO | Count of transport/framing errors (diagnostic) |
 | 68–70 | *reserved* | — | — | Future thermostat "HEAT mode" (setpoint→level mapping) |
 

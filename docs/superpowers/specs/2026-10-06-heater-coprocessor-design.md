@@ -210,7 +210,7 @@ Rules:
 
 Triggers: boot with `HEATER_TYPE = AUTO` (default); `AUTO_DETECT` command; hot-swap (AUTO, link lost 30 s **while OFF** — never while a heater may be running).
 
-Known consequence: VEVOR answers only control frames, so if the coprocessor resets while a VEVOR is running, the probe's stop poll sends it into normal cooldown (safe); the G0B1's re-asserted RUN_REQUEST restarts it.
+Known consequence: VEVOR answers only control frames, so if the coprocessor resets while a VEVOR is running, the probe's stop poll sends it into normal cooldown (safe); the G0B1's re-asserted RUN_REQUEST restarts it. (Map v2 / fw 0.2.x no longer does: the reset coprocessor is unarmed, stops a heater it finds running, and refuses a start until standby. See heater-coprocessor.md, Run control.)
 
 ## 5. Protocol drivers
 

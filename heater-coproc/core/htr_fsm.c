@@ -243,6 +243,11 @@ static void run_step(uint32_t now)
                mid-run, or a start processed after a no-op stop): stop it. */
             s_drv->stop(s_drv->ctx);
             set_phase(HTR_PHASE_STOP_REQUESTED, now);
+        } else if (h == HTR_HINT_COOLDOWN) {
+            /* Heater still cooling (coprocessor reset during cooldown, or a
+               fault cleared before standby): track it, so a start is refused
+               until standby instead of faulting on the cooldown report. */
+            set_phase(HTR_PHASE_COOLDOWN, now);
         } else if ((s_type_setting == HTR_TYPE_AUTO) &&
                    ((uint32_t)(now - s_stale_since) >= HTR_HOTSWAP_MS)) {
             begin_sense(now);                     /* hot-swap: only while OFF */
@@ -276,6 +281,13 @@ static void run_step(uint32_t now)
         return;
     case HTR_PHASE_COOLDOWN:
         if (h == HTR_HINT_OFF) { set_phase(HTR_PHASE_OFF, now); return; }
+        if ((h == HTR_HINT_STARTING) || (h == HTR_HINT_RUNNING)) {
+            /* Relit with nobody asking (a start it stored, or its own panel):
+               stop it now, not at the cooldown timeout. */
+            s_drv->stop(s_drv->ctx);
+            set_phase(HTR_PHASE_STOP_REQUESTED, now);
+            return;
+        }
         if ((uint32_t)(now - s_phase_tick) >= HTR_COOLDOWN_TIMEOUT_MS) enter_fault(now);
         return;
     default:  /* FAULT: keep talking, wait for CLEAR_FAULT; re-stop a heater still burning */
@@ -363,6 +375,8 @@ uint8_t htr_fsm_reinit_iface(uint32_t now)
 {
     return htr_fsm_redetect(now);   /* re-runs the interface bring-up + driver init */
 }
+
+uint8_t htr_fsm_phase(void) { return s_phase; }
 
 void htr_fsm_view(uint32_t now, htr_fsm_view_t *out)
 {
