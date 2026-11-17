@@ -1,6 +1,7 @@
 #include "heater.h"
 #include "htr_i2c_map.h"
 #include "htr_types.h"
+#include "vevor_proto.h"
 #include <string.h>
 
 static const i2c_backend_t *s_bus;
@@ -204,6 +205,13 @@ void heater_set_recovery_epoch(uint32_t (*epoch)(void))
 static bool recovery_changed(void)
 {
     return s_recovery_epoch && s_recovery_epoch() != s_checked_epoch;
+}
+
+static bool stopping_or_cooling(void)
+{
+    return s_t.phase == HTR_PHASE_STOP_REQUESTED || s_t.phase == HTR_PHASE_COOLDOWN ||
+           (s_t.type == HTR_TYPE_VEVOR &&
+            (s_t.vendor_state >> 8) == VEVOR_REPORTED_COOLDOWN);
 }
 
 static void drop_request(void)
@@ -468,7 +476,7 @@ void heater_process(uint32_t now)
        Keep RUN_REQUEST out of level/setpoint writes and ambient atomic. */
     if (!s_start_unconfirmed && !s_start_expired &&
         (ctl[0] != m[HTR_R_RUN_REQUEST] || (!ctl[0] && !s_start_armed))) {
-        if (ctl[0] != 0U && !(flags & HTR_F_START_ARMED)) {
+        if (ctl[0] != 0U && (!(flags & HTR_F_START_ARMED) || stopping_or_cooling())) {
             s_request = 0U;              /* the coprocessor can't take it now */
             s_request_again = true;
         } else if (write_checked(HTR_R_RUN_REQUEST, ctl, 1U) != 0) {
@@ -540,7 +548,7 @@ bool heater_set_request(uint8_t on)
     s_refuse_on_after_silence = false;
     bool hold = on && !s_request && s_ever_identified &&
                 (!s_identified || recovery_changed());
-    if (on && (refuse_after_silence || s_silence_stop || s_start_expired ||
+    if (on && (refuse_after_silence || s_silence_stop || s_start_expired || stopping_or_cooling() ||
                s_map_fault == HEATER_FLAG_MAP_MISMATCH ||
                (!hold && !s_request && (!s_identified || !s_start_armed)))) {
         s_request_again = true;
