@@ -255,6 +255,59 @@ void test_standby_before_heater_acts_on_start_is_not_a_fault(void){
     boot_found_3w(); req(1); tick_to(8000);               /* still reports standby: not yet acted */
     TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_STARTING, view().phase);
 }
+/* ---- 0.2.3: +5V_HTR held while a 4-wire heater is on the line ---- */
+static bool pwr_ever_active(void){
+    for(size_t i=0;i<g.n;i++) if(g.ev[i].kind==EV_LINE && g.ev[i].a==HTR_LINE_TX_PWR && g.ev[i].b) return true;
+    return false;
+}
+void test_4w_hold_off_during_boot_quiet(void){
+    boot_auto(100,100); tick_to(2990);
+    TEST_ASSERT_FALSE(pwr_ever_active());
+}
+void test_4w_signature_holds_5v_across_failed_probes(void){
+    boot_auto(100,100);                          /* 4W driver answers ABSENT */
+    tick_to(4100);                               /* quiet + 1 s sense done */
+    TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]);
+    tick_to(8000);
+    TEST_ASSERT_EQUAL_UINT8(HTR_DET_UNKNOWN, view().detect_result);
+    TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]);   /* held while backing off */
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_EN]);   /* but the mux is disconnected */
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_MODE]);
+    TEST_ASSERT_FALSE(g.attached[HTR_WIRING_4W]);
+    for(uint32_t t=8000;t<40000;t+=10){ tick_to(t); TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]); }
+}
+void test_4w_hold_drops_when_heater_unplugged(void){
+    boot_auto(100,100); tick_to(8000);
+    TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]);
+    g.high_pct[HTR_WIRING_3W]=0; g.high_pct[HTR_WIRING_4W]=0;
+    tick_to(8000 + HTR_DETECT_RETRY_MS + 2000);  /* next sense sees no heater */
+    TEST_ASSERT_EQUAL_UINT8(HTR_DET_NO_HEATER, view().detect_result);
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_PWR]);
+}
+void test_4w_hold_drops_when_3w_heater_replaces_it(void){
+    boot_auto(100,100); tick_to(8000);
+    g.high_pct[HTR_WIRING_4W]=0; fake_ctx[0].probe_answer=HTR_PROBE_FOUND;
+    tick_to(8000 + HTR_DETECT_RETRY_MS + 3000);
+    TEST_ASSERT_EQUAL_UINT8(1u, view().active_type);
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_PWR]);
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_MODE]);
+}
+void test_3w_signature_never_powers_5v(void){
+    boot_auto(100,0); tick_to(40000);           /* 3W drivers ABSENT: retries */
+    TEST_ASSERT_FALSE(pwr_ever_active());
+}
+void test_type_none_drops_4w_hold(void){
+    boot_auto(100,100); tick_to(8000);
+    TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_OK, htr_fsm_set_type(HTR_TYPE_NONE, now));
+    tick_to(9000);
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_PWR]);
+}
+void test_4w_found_keeps_5v_and_hold(void){
+    boot_auto(100,100); fake_ctx[1].probe_answer=HTR_PROBE_FOUND; tick_to(6000);
+    TEST_ASSERT_EQUAL_UINT8(2u, view().active_type);
+    TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]); TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_EN]);
+}
 int main(void){ UNITY_BEGIN();
     RUN_TEST(test_off_with_heater_reporting_running_sends_stop);
     RUN_TEST(test_off_with_heater_reporting_cooldown_tracks_cooldown);
@@ -281,4 +334,11 @@ int main(void){ UNITY_BEGIN();
     RUN_TEST(test_hotswap_redetects_only_while_off);
     RUN_TEST(test_forced_type_skips_sense_and_probe);
     RUN_TEST(test_type_change_rejected_while_running);
+        RUN_TEST(test_4w_hold_off_during_boot_quiet);
+    RUN_TEST(test_4w_signature_holds_5v_across_failed_probes);
+    RUN_TEST(test_4w_hold_drops_when_heater_unplugged);
+    RUN_TEST(test_4w_hold_drops_when_3w_heater_replaces_it);
+    RUN_TEST(test_3w_signature_never_powers_5v);
+    RUN_TEST(test_type_none_drops_4w_hold);
+    RUN_TEST(test_4w_found_keeps_5v_and_hold);
     return UNITY_END(); }

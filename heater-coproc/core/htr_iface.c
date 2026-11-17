@@ -9,6 +9,7 @@ static bool s_pwr_for_3w;
 static if_state_t s_state;
 static uint8_t s_wiring;
 static uint32_t s_t0;
+static bool s_hold_pwr;    /* a 4-wire heater is on the line: keep +5V_HTR up */
 
 static void line(htr_line_t l, bool active) { s_g->set_line(s_g->ctx, l, active); }
 
@@ -17,7 +18,7 @@ static void all_safe(void)
     line(HTR_LINE_TX_EN, false);       /* disconnect first */
     s_g->attach_uart(s_g->ctx, HTR_WIRING_3W, false);
     s_g->attach_uart(s_g->ctx, HTR_WIRING_4W, false);
-    line(HTR_LINE_TX_PWR, false);
+    line(HTR_LINE_TX_PWR, s_hold_pwr); /* supply only; the mux stays disconnected */
     line(HTR_LINE_TX_MODE, false);
 }
 
@@ -27,8 +28,21 @@ void htr_iface_init(const htr_gpio_t *g, bool pwr_for_3w)
     s_pwr_for_3w = pwr_for_3w;
     s_state = IF_OFF;
     s_wiring = HTR_WIRING_NONE;
+    s_hold_pwr = false;
     all_safe();
 }
+
+void htr_iface_hold_power(bool hold)
+{
+    bool need;
+    s_hold_pwr = hold;
+    if (s_g == NULL) return;
+    need = hold || ((s_state != IF_OFF) &&
+                    ((s_wiring == HTR_WIRING_4W) || s_pwr_for_3w));
+    line(HTR_LINE_TX_PWR, need);
+}
+
+bool htr_iface_power_held(void) { return s_hold_pwr; }
 
 void htr_iface_enable(uint8_t wiring, uint32_t now)
 {
@@ -37,7 +51,7 @@ void htr_iface_enable(uint8_t wiring, uint32_t now)
     if (s_state != IF_OFF) htr_iface_disable();   /* class change goes via off */
     line(HTR_LINE_TX_EN, false);
     line(HTR_LINE_TX_MODE, wiring == HTR_WIRING_4W);
-    line(HTR_LINE_TX_PWR, (wiring == HTR_WIRING_4W) || s_pwr_for_3w);
+    line(HTR_LINE_TX_PWR, (wiring == HTR_WIRING_4W) || s_pwr_for_3w || s_hold_pwr);
     s_wiring = wiring;
     s_t0 = now;
     s_state = IF_SETTLING;
