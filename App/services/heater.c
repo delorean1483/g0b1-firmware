@@ -6,7 +6,7 @@
 static const i2c_backend_t *s_bus;
 static void (*s_reset)(void);
 static uint8_t s_request;
-static bool s_on_held;
+static bool s_on_held, s_request_started;
 static bool s_start_unconfirmed, s_request_again, s_start_expired, s_start_armed;
 static uint32_t s_start_at;
 #ifdef HEATER_BENCH_FAULTS
@@ -126,6 +126,7 @@ void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t 
     s_reset = reset_coproc;
     s_request = 0U;
     s_on_held = false;
+    s_request_started = false;
     s_level = 1U;
     s_setpoint = 20;
     s_ambient_x10 = HTR_AMBIENT_UNKNOWN;
@@ -205,16 +206,22 @@ static bool recovery_changed(void)
     return s_recovery_epoch && s_recovery_epoch() != s_checked_epoch;
 }
 
+static void drop_request(void)
+{
+    if (s_on_held || (s_request && !s_request_started)) s_request_again = true;
+    s_on_held = false;
+    s_request = 0U;
+    s_start_unconfirmed = false;
+}
+
 static void close_write_gate(uint16_t fault)
 {
     s_identified = 0U;
     s_status_seen = false;
     s_map_fault = fault;
     if (fault == HEATER_FLAG_MAP_MISMATCH) {
-        if (s_on_held) s_request_again = true;
-        s_on_held = false;
-        s_request = 0U;
-        s_start_unconfirmed = s_start_expired = false;
+        drop_request();
+        s_start_expired = false;
     }
     s_start_armed = false;
     s_cmd_pending = 0U;
@@ -227,11 +234,10 @@ static void latch_cortex_silence(void)
     s_cortex_silent = true;
     s_silence_stop = true;
     if (s_request || s_on_held) s_refuse_on_after_silence = true;
-    s_start_unconfirmed = s_start_expired = false;
+    s_start_expired = false;
     s_silence_attempts = HEATER_SILENCE_STOP_ATTEMPTS;
     s_silence_verify = false;
-    s_request = 0U;
-    s_on_held = false;
+    drop_request();
     s_cmd_pending = 0U;
     s_type_pending = 0U;
     s_identified = 0U;
@@ -386,14 +392,14 @@ void heater_process(uint32_t now)
     }
 
     uint16_t frames = le16(m, HTR_R_VALID_FRAMES);
-    bool reset_hint = s_status_seen &&
-        ((m[HTR_R_PHASE] == HTR_PHASE_DETECTING && s_t.phase != HTR_PHASE_DETECTING) ||
-         (frames < s_t.valid_frames && (uint16_t)(frames - s_t.valid_frames) >= 0x8000u));
+    bool reset_hint =
+        (m[HTR_R_PHASE] == HTR_PHASE_DETECTING &&
+         (s_request || s_on_held || (s_status_seen && s_t.phase != HTR_PHASE_DETECTING))) ||
+        (s_status_seen && frames < s_t.valid_frames &&
+         (uint16_t)(frames - s_t.valid_frames) >= 0x8000u);
     if (reset_hint) {
-        if (s_on_held) s_request_again = true;
-        s_on_held = false;
-        s_start_unconfirmed = s_start_expired = false;
-        s_request = 0U;
+        drop_request();
+        s_start_expired = false;
         close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
         if (!check_map(now)) goto lost_check;
     }
@@ -411,7 +417,10 @@ void heater_process(uint32_t now)
         s_request_again = !s_request;
     }
     if (s_t.phase == HTR_PHASE_FAULT || (stopped_locally && !s_local_stop_seen)) {
-        s_request = 0U;
+        /* The coprocessor refused or timed out a request we hold: tell the
+           user (REQUEST_AGAIN). A FAULT shows as a fault instead. */
+        if (s_request != 0U && s_t.phase != HTR_PHASE_FAULT) s_request_again = true;
+        drop_request();
         if (s_cmd_pending == HTR_CMD_START) s_cmd_pending = 0U;
     }
     if (s_start_unconfirmed) {
@@ -419,6 +428,7 @@ void heater_process(uint32_t now)
         s_request = m[HTR_R_RUN_REQUEST] == HTR_RUN_KEY;
         s_request_again = !s_request;
     }
+    if (s_request && m[HTR_R_RUN_REQUEST] == HTR_RUN_KEY) s_request_started = true;
     if (s_start_expired && m[HTR_R_RUN_REQUEST] == 0U) s_start_expired = false;
     s_local_stop_seen = stopped_locally;
     if (s_silence_stop && m[HTR_R_RUN_REQUEST] == 0U) s_silence_stop = false;
@@ -459,7 +469,8 @@ void heater_process(uint32_t now)
     if (!s_start_unconfirmed && !s_start_expired &&
         (ctl[0] != m[HTR_R_RUN_REQUEST] || (!ctl[0] && !s_start_armed))) {
         if (ctl[0] != 0U && !(flags & HTR_F_START_ARMED)) {
-            s_request = 0U;
+            s_request = 0U;              /* the coprocessor can't take it now */
+            s_request_again = true;
         } else if (write_checked(HTR_R_RUN_REQUEST, ctl, 1U) != 0) {
             /* Ambiguous delivery must never replay a keyed START. */
             if (ctl[0] != 0U && s_request != 0U) {
@@ -490,9 +501,7 @@ write_failed:
     xport_fail(now);
 lost_check:
     if (s_ever_identified && (uint32_t)(now - s_last_ok) >= HEATER_LOST_MS) {
-        if (s_on_held) s_request_again = true;
-        s_on_held = false;
-        s_request = 0U;
+        drop_request();
         close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
         s_last_ok = now;
         if (s_reset != NULL) s_reset();
@@ -540,6 +549,7 @@ bool heater_set_request(uint8_t on)
     }
     s_request_again = false;
     s_t.flags &= (uint16_t)~HEATER_FLAG_REQUEST_AGAIN;
+    if (!on || !s_request) s_request_started = false;
     if (!on) s_start_unconfirmed = s_start_expired = false;
     s_on_held = hold;
     s_request = on && !hold;

@@ -12,10 +12,11 @@
 
 static fake_gpio_t g; static fake_uart_t u3, u4;
 static const htr_driver_t *const drvs[] = { &fake_drv[0], &fake_drv[1] };
-static uint32_t now;
+static uint32_t now, epoch;
+static uint32_t recovery_epoch(void) { return epoch; }
 static bool cortex_live, reject_stop;
 static unsigned stop_writes, start_writes;
-static bool fail_start, deliver_start, fail_status;
+static bool fail_start, deliver_start, fail_status, redetect_on_key;
 
 /* Mem_Write = START addr+W, ptr, data..., STOP. Mem_Read = START addr+W, ptr,
    RESTART addr+R, data..., STOP (no STOP between the two phases). */
@@ -34,6 +35,10 @@ static int br_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len){
     bool report_failure = false;
     if (reg == HTR_R_RUN_REQUEST && len == 1U && buf[0] == HTR_RUN_KEY) {
         ++start_writes;
+        if (redetect_on_key) {
+            redetect_on_key = false;
+            TEST_ASSERT_EQUAL_UINT8(HTR_RES_OK, htr_fsm_redetect(now));
+        }
         report_failure = fail_start;
         if (fail_start && !deliver_start) return -1;
     }
@@ -58,10 +63,12 @@ static void coproc_boot(void){
     htr_fsm_init(&fc, type, now);
 }
 void setUp(void){
-    fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4); now = 0; cortex_live = true; reject_stop = false; stop_writes = start_writes = 0; fail_start = deliver_start = fail_status = false;
+    fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4); now = 0; cortex_live = true; reject_stop = false; stop_writes = start_writes = 0; fail_start = deliver_start = fail_status = redetect_on_key = false;
     g.high_pct[HTR_WIRING_3W] = 100; fake_ctx[0].probe_answer = HTR_PROBE_FOUND;
+    epoch = 0;
     coproc_boot();
     heater_init(&bridge, 0, now);
+    heater_set_recovery_epoch(recovery_epoch);
 }
 void tearDown(void){}
 
@@ -191,7 +198,131 @@ static void test_ambiguous_start_expires_without_status(void)
     TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
 }
 
+static void exercise_start_refusal(uint8_t phase)
+{
+    both_to(7000);
+    if (phase == HTR_PHASE_DETECTING) {
+        redetect_on_key = true;
+    } else {
+        TEST_ASSERT_TRUE(heater_set_request(1)); both_to(7600);
+        fake_ctx[0].hint = HTR_HINT_RUNNING; both_to(8500);
+        TEST_ASSERT_TRUE(heater_set_request(0)); both_to(9000);
+        if (phase == HTR_PHASE_COOLDOWN) {
+            fake_ctx[0].hint = HTR_HINT_COOLDOWN; both_to(10000);
+        }
+        TEST_ASSERT_EQUAL_UINT8(phase, tel().phase);
+    }
+    unsigned keys = start_writes;
+    unsigned starts = fake_ctx[0].starts;
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    both_to(now + 1500U);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, tel().cmd_result);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_EQUAL_UINT(keys + 1U, start_writes);
+    TEST_ASSERT_EQUAL_UINT(starts, fake_ctx[0].starts);
+    bool request_again = (tel().flags & HEATER_FLAG_REQUEST_AGAIN) != 0U;
+
+    fake_ctx[0].hint = HTR_HINT_OFF; both_to(now + 8000U);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, tel().phase);
+    TEST_ASSERT_EQUAL_UINT(keys + 1U, start_writes);
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    TEST_ASSERT_BITS_LOW(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+    both_to(now + 1000U);
+    TEST_ASSERT_EQUAL_UINT(keys + 2U, start_writes);
+    TEST_ASSERT_EQUAL_UINT(starts + 1U, fake_ctx[0].starts);
+    TEST_ASSERT_TRUE_MESSAGE(request_again, "Refusal did not set REQUEST_AGAIN");
+}
+
+static void test_stop_requested_refusal_and_fresh_on(void)
+{
+    exercise_start_refusal(HTR_PHASE_STOP_REQUESTED);
+}
+
+static void test_cooldown_refusal_and_fresh_on(void)
+{
+    exercise_start_refusal(HTR_PHASE_COOLDOWN);
+}
+
+static void test_detection_refusal_and_fresh_on(void)
+{
+    exercise_start_refusal(HTR_PHASE_DETECTING);
+}
+
+static void test_silence_latch_and_explicit_off(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(5000, HEATER_CORTEX_FRESH_MS);
+    both_to(7000);
+    TEST_ASSERT_TRUE(heater_set_request(1)); both_to(7600);
+    fake_ctx[0].hint = HTR_HINT_RUNNING; both_to(8500);
+    cortex_live = false;
+    both_to(13300);
+    TEST_ASSERT_EQUAL_UINT8(1, heater_get_request());
+    both_to(13800);
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    cortex_live = true;
+    fake_ctx[0].hint = HTR_HINT_OFF; both_to(15000);
+    TEST_ASSERT_FALSE(heater_set_request(1));
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+    TEST_ASSERT_EQUAL_UINT(1, start_writes);
+    TEST_ASSERT_TRUE(heater_set_request(0));
+    TEST_ASSERT_BITS_LOW(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+    TEST_ASSERT_TRUE(heater_set_request(1)); both_to(15800);
+    TEST_ASSERT_EQUAL_UINT(2, start_writes);
+}
+
+static void assert_fresh_on_after_drop(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(0, heater_get_request());
+    TEST_ASSERT_EQUAL_UINT(0, start_writes);
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    TEST_ASSERT_BITS_LOW(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+    both_to(now + 1000U);
+    TEST_ASSERT_EQUAL_UINT(1, start_writes);
+    TEST_ASSERT_EQUAL_UINT(1, fake_ctx[0].starts);
+}
+
+static void test_reboot_drops_on_before_key(void)
+{
+    both_to(7000);
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    TEST_ASSERT_EQUAL_UINT(0, start_writes);
+    coproc_boot();
+    both_to(now + 8000U);
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+    assert_fresh_on_after_drop();
+}
+
+static void test_reboot_drops_on_held_for_bus_recheck(void)
+{
+    both_to(7000);
+    ++epoch;
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    coproc_boot();
+    both_to(now + 8000U);
+    TEST_ASSERT_BITS_HIGH(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+    assert_fresh_on_after_drop();
+}
+
+static void test_explicit_off_drops_held_on_without_feedback(void)
+{
+    both_to(7000);
+    ++epoch;
+    TEST_ASSERT_TRUE(heater_set_request(1));
+    TEST_ASSERT_EQUAL_UINT8(1, heater_get_request());
+    TEST_ASSERT_TRUE(heater_set_request(0));
+    both_to(now + 2000U);
+    TEST_ASSERT_BITS_LOW(HEATER_FLAG_REQUEST_AGAIN, tel().flags);
+    assert_fresh_on_after_drop();
+}
+
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_reboot_drops_on_before_key);
+    RUN_TEST(test_reboot_drops_on_held_for_bus_recheck);
+    RUN_TEST(test_explicit_off_drops_held_on_without_feedback);
+    RUN_TEST(test_stop_requested_refusal_and_fresh_on);
+    RUN_TEST(test_cooldown_refusal_and_fresh_on);
+    RUN_TEST(test_detection_refusal_and_fresh_on);
+    RUN_TEST(test_silence_latch_and_explicit_off);
     RUN_TEST(test_ambiguous_start_delivered);
     RUN_TEST(test_ambiguous_start_not_delivered);
     RUN_TEST(test_ambiguous_start_expires_without_status);
