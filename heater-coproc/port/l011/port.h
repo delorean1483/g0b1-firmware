@@ -25,4 +25,7 @@ void     port_iwdg_start(void);
 void     port_iwdg_kick(void);
 void     port_lock(void);
 void     port_unlock(void);
+#ifdef L011_RELOCATED_APP
+bool port_take_update_request(void);
+#endif
 #endif
