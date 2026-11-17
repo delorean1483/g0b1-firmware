@@ -14,7 +14,7 @@ static modbus_exc_t rd_chan(uint16_t reg, uint16_t *o)
 static modbus_exc_t wr_chan(uint16_t reg, uint16_t v)
 {
     uint8_t q[3];
-    if (v > 255U) { return MB_EXC_ILLEGAL_VALUE; }
+    if (v > 255U || mb_l011_maintenance()) { return MB_EXC_ILLEGAL_VALUE; }
     rgb_get_requested(q);
     q[reg - 76U] = (uint8_t)v;
     rgb_set_logical(q[0], q[1], q[2]);
@@ -39,6 +39,7 @@ static modbus_exc_t wr_bench_injection(uint16_t reg, uint16_t mode)
 {
     (void)reg;
     uint16_t heater_mode, heater_run;
+    if (mb_l011_maintenance()) return MB_EXC_ILLEGAL_VALUE;
     if (mode && (mb_reg_read(10U, &heater_mode) != MB_EXC_NONE || heater_mode != 0u ||
                  mb_reg_read(53U, &heater_run) != MB_EXC_NONE || heater_run != 0u))
         return MB_EXC_ILLEGAL_VALUE;
@@ -56,7 +57,7 @@ static modbus_exc_t rd_pwm_hz(uint16_t reg, uint16_t *value)
 static modbus_exc_t wr_pwm_hz(uint16_t reg, uint16_t value)
 {
     (void)reg;
-    if (value != 200u && value != 400u) return MB_EXC_ILLEGAL_VALUE;
+    if (mb_l011_maintenance() || (value != 200u && value != 400u)) return MB_EXC_ILLEGAL_VALUE;
     uint8_t applied[3], requested[3];
     rgb_get_applied(applied);
     rgb_get_requested(requested);

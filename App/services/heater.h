@@ -86,6 +86,7 @@ void heater_set_poll_clock(uint32_t (*clock_ms)(void));
 uint16_t heater_poll_diagnostic(uint16_t reg);
 void    heater_process(uint32_t now);
 bool    heater_set_request(uint8_t on);
+void    heater_forget_coproc(void);
 uint8_t heater_get_request(void);
 void    heater_set_level(uint8_t level);          /* 1..10, else ignored */
 uint8_t heater_get_level(void);

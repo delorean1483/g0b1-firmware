@@ -7,7 +7,7 @@ static heater_telemetry_t tel(void) { heater_telemetry_t t; heater_get_telemetry
 static modbus_exc_t rd_request(uint16_t reg, uint16_t *o) { (void)reg; *o = heater_get_request(); return MB_EXC_NONE; }
 static modbus_exc_t wr_request(uint16_t reg, uint16_t v) {
     (void)reg;
-    if (v > 1U) { return MB_EXC_ILLEGAL_VALUE; }
+    if (v > 1U || mb_l011_maintenance()) { return MB_EXC_ILLEGAL_VALUE; }
     return heater_set_request((uint8_t)v) ? MB_EXC_NONE : MB_EXC_ILLEGAL_VALUE;
 }
 static modbus_exc_t rd_level(uint16_t reg, uint16_t *o) { (void)reg; *o = heater_get_level(); return MB_EXC_NONE; }
@@ -35,7 +35,7 @@ static modbus_exc_t wr_type_select(uint16_t reg, uint16_t v) {
 static modbus_exc_t rd_command(uint16_t reg, uint16_t *o) { heater_telemetry_t t = tel(); (void)reg; *o = t.cmd_result; return MB_EXC_NONE; }
 static modbus_exc_t wr_command(uint16_t reg, uint16_t v) {
     (void)reg;
-    if ((v > 0xFFU) || !heater_send_command((uint8_t)v)) { return MB_EXC_ILLEGAL_VALUE; }
+    if (mb_l011_maintenance() || (v > 0xFFU) || !heater_send_command((uint8_t)v)) { return MB_EXC_ILLEGAL_VALUE; }
     return MB_EXC_NONE;
 }
 
@@ -50,7 +50,7 @@ static modbus_exc_t rd_bench(uint16_t reg, uint16_t *value)
 static modbus_exc_t wr_bench(uint16_t reg, uint16_t value)
 {
     (void)reg;
-    return heater_bench_arm(value) ? MB_EXC_NONE : MB_EXC_ILLEGAL_VALUE;
+    return !mb_l011_maintenance() && heater_bench_arm(value) ? MB_EXC_NONE : MB_EXC_ILLEGAL_VALUE;
 }
 #endif
 

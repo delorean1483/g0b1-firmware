@@ -252,6 +252,12 @@ static void latch_cortex_silence(void)
     s_status_seen = false;
 }
 
+void heater_forget_coproc(void)
+{
+    (void)heater_set_request(0);
+    close_write_gate(0);
+}
+
 void heater_note_cortex_traffic(uint32_t now)
 {
     if (s_cortex_seen && (uint32_t)(now - s_cortex_at) >= HEATER_CORTEX_FRESH_MS)

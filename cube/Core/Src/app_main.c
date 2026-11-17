@@ -54,7 +54,7 @@ static modbus_exc_t l011_reset_write(uint16_t reg, uint16_t value)
     (void)reg;
     uint16_t mode;
     uint8_t id[2], run, phase;
-    if (value != L011_RESET_KEY || heater_get_request() ||
+    if (value != L011_RESET_KEY || heater_get_request() || drv_l011_update_active() ||
         mb_reg_read(10u, &mode) != MB_EXC_NONE || mode != 0u ||
         drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_DEVICE_ID, id, 2, 20) ||
         id[0] != HTR_DEVICE_ID || id[1] != HTR_MAP_VERSION ||
@@ -345,6 +345,7 @@ void app_main(void)
 #endif
     mbp_rgb_register();               /* RGB lamp regs (command + status) */
     drv_i2c2_register_diagnostics();   /* Read-only recovery counters, 80-83 */
+    drv_l011_update_register();
     drv_rgb_i2c2_probe_register();
 
     /* Task 11 — control application: init the shared apu_ctx, register the six
@@ -393,7 +394,7 @@ void app_main(void)
             sched_run();         /* dispatch due slots to their handlers */
         }
         drv_modbus_uart_poll();  /* drain any assembled RTU frame -> engine -> DMA TX */
-        {
+        if (!drv_l011_update_active()) {
             heater_set_ambient_f(sensors_get_encl_temp_f());
             heater_process(HAL_GetTick());
             rgb_process(now);

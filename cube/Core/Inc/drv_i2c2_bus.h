@@ -1,6 +1,7 @@
 #ifndef DRV_I2C2_BUS_H
 #define DRV_I2C2_BUS_H
 #include <stdint.h>
+#include <stdbool.h>
 typedef struct {
     uint32_t error, isr, tick;
     uint16_t status, lines;
@@ -22,4 +23,6 @@ int drv_i2c2_write_once(uint8_t addr7, uint8_t reg, const uint8_t *buf,
 /* Read-only Modbus: 80 attempts, 81 clears, 82 failures, 83 last line levels
  * (bit0 SCL, bit1 SDA). Counters saturate and clear on MCU reset. */
 void drv_i2c2_register_diagnostics(void);
+void drv_l011_update_register(void);
+bool drv_l011_update_active(void);
 #endif

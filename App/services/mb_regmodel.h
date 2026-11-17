@@ -1,6 +1,7 @@
 #ifndef MB_REGMODEL_H
 #define MB_REGMODEL_H
 #include "modbus_defs.h"
+#include <stdbool.h>
 
 /* A provider read returns MB_EXC_NONE and sets *out, or an exception code.
    A provider write returns MB_EXC_NONE, or ILLEGAL_VALUE for out-of-range. */
@@ -11,5 +12,12 @@ void         mb_reg_reset(void);   /* drop all bindings */
 void         mb_reg_bind(uint16_t reg, mb_reg_read_fn rd, mb_reg_write_fn wr); /* wr NULL = read-only */
 modbus_exc_t mb_reg_read(uint16_t reg, uint16_t *out);  /* unbound/no reader -> ILLEGAL_ADDRESS */
 modbus_exc_t mb_reg_write(uint16_t reg, uint16_t val);  /* unbound/no writer -> ILLEGAL_ADDRESS */
+
+/* The update bridge is optional in host builds. Unbound means inactive. */
+static inline bool mb_l011_maintenance(void)
+{
+    uint16_t active;
+    return mb_reg_read(MB_L011_UPDATE_MODE, &active) == MB_EXC_NONE && active != 0U;
+}
 
 #endif /* MB_REGMODEL_H */
