@@ -52,6 +52,7 @@ static int heater_is_off(void)
 
 static modbus_exc_t probe_write(uint16_t reg, uint16_t value)
 {
+    if (mb_l011_maintenance()) return MB_EXC_ILLEGAL_VALUE;
     if (reg == 108 && value == 0) {
         if (s_probe.state == 1) { s_probe.state = 3; s_probe.reason = 1; }
         return MB_EXC_NONE;

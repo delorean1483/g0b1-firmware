@@ -17,6 +17,7 @@
 #include "drv_heater_i2c2.h" /* I2C2 backend for the heater coprocessor (0x64) */
 #include "drv_rgb_i2c2.h"    /* I2C2 backend for the IS31FL3293 RGB driver (0x6C) */
 #include "mb_engine.h"       /* portable Modbus RTU engine (App/services) */
+#include "mb_regmodel.h"
 #include "mbp_sys.h"         /* portable system provider (fw-rev/reset regs) */
 #include "mbp_nvm.h"         /* portable NVM Modbus provider (persisted regs) */
 #include "mbp_rtc.h"         /* portable RTC/calendar Modbus provider (regs 24-31/42-48/52) */
@@ -29,10 +30,62 @@
 #include "app_confirm.h"      /* self-confirm active A/B slot when healthy */
 #include "drv_iflash.h"       /* internal-flash backend (bootcfg store) */
 #include "heater.h"          /* heater coprocessor client (App/services) */
+#include "htr_i2c_map.h"
+#include "htr_types.h"
 #include "mbp_heater.h"      /* heater Modbus provider (regs 53-75) */
 #include "rgb.h"             /* external RGB lamp service (App/services) */
 #include "mbp_rgb.h"         /* RGB lamp Modbus provider */
 #include "sensors.h"         /* cabin (enclosure) temp -> heater ambient */
+
+#ifdef HEATER_BENCH_FAULTS
+#define L011_RESET_REG 2202u
+#define L011_RESET_KEY 0xA511u
+static uint16_t s_l011_reset_count;
+
+static modbus_exc_t l011_reset_read(uint16_t reg, uint16_t *value)
+{
+    (void)reg;
+    *value = s_l011_reset_count;
+    return MB_EXC_NONE;
+}
+
+static modbus_exc_t l011_reset_write(uint16_t reg, uint16_t value)
+{
+    (void)reg;
+    uint16_t mode;
+    uint8_t id[2], run, phase;
+    if (value != L011_RESET_KEY || heater_get_request() || drv_l011_update_active() ||
+        mb_reg_read(10u, &mode) != MB_EXC_NONE || mode != 0u ||
+        drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_DEVICE_ID, id, 2, 20) ||
+        id[0] != HTR_DEVICE_ID || id[1] != HTR_MAP_VERSION ||
+        drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_RUN_REQUEST, &run, 1, 20) || run ||
+        drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_PHASE, &phase, 1, 20) ||
+        phase == HTR_PHASE_STARTING || phase == HTR_PHASE_RUNNING)
+        return MB_EXC_ILLEGAL_VALUE;
+
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_8, GPIO_PIN_RESET);
+    HAL_Delay(10);
+    bool pulled_low = HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_8) == GPIO_PIN_RESET;
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_8, GPIO_PIN_SET);
+    HAL_Delay(2);
+    if (!pulled_low || HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_8) != GPIO_PIN_SET)
+        return MB_EXC_SLAVE_DEVICE_FAILURE;
+    ++s_l011_reset_count;
+    return MB_EXC_NONE;
+}
+
+static void l011_reset_register(void)
+{
+    /* R1 GPIOX5 is PD8. Preload released before enabling open-drain. */
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_8, GPIO_PIN_SET);
+    GPIO_InitTypeDef gpio = {0};
+    gpio.Pin = GPIO_PIN_8;
+    gpio.Mode = GPIO_MODE_OUTPUT_OD;
+    HAL_GPIO_Init(GPIOD, &gpio);
+    mb_reg_bind(L011_RESET_REG, l011_reset_read, l011_reset_write);
+}
+#endif
 
 extern IWDG_HandleTypeDef hiwdg;  /* Task 10: CubeMX-generated (MX_IWDG_Init, ~2 s) */
 
@@ -287,8 +340,12 @@ void app_main(void)
     mbp_rtc_register();               /* Task 7: calendar/RTCC/SRAM regs (24-31/42-48/52) */
     mbp_sensors_register(drv_rpm_source()); /* Task 8/9: temp/batt regs 1/3/6/51 + reg 38 live RPM */
     mbp_heater_register();            /* heater regs 53-75 (command + telemetry) */
+#ifdef HEATER_BENCH_FAULTS
+    l011_reset_register();
+#endif
     mbp_rgb_register();               /* RGB lamp regs (command + status) */
     drv_i2c2_register_diagnostics();   /* Read-only recovery counters, 80-83 */
+    drv_l011_update_register();
     drv_rgb_i2c2_probe_register();
 
     /* Task 11 — control application: init the shared apu_ctx, register the six
@@ -337,10 +394,12 @@ void app_main(void)
             sched_run();         /* dispatch due slots to their handlers */
         }
         drv_modbus_uart_poll();  /* drain any assembled RTU frame -> engine -> DMA TX */
-        heater_set_ambient_f(sensors_get_encl_temp_f()); /* AUTOTERM room temp (enclosure stand-in) */
-        heater_process(HAL_GetTick());     /* coprocessor client: self-paced at 250 ms */
-        rgb_process(now);        /* RGB lamp client: after heater, never overlaps on I2C2 */
-        drv_rgb_i2c2_probe_process(now);
+        if (!drv_l011_update_active()) {
+            heater_set_ambient_f(sensors_get_encl_temp_f());
+            heater_process(HAL_GetTick());
+            rgb_process(now);
+            drv_rgb_i2c2_probe_process(now);
+        }
         HAL_IWDG_Refresh(&hiwdg);/* Task 10: kick the watchdog once per superloop pass */
     }
 }

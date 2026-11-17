@@ -460,9 +460,28 @@ void test_heater_control_write_is_not_replayed_after_recovery(void)
     TEST_ASSERT_EQUAL_UINT32(1, drv_i2c2_recovery_epoch());
 }
 
+static modbus_exc_t maintenance_active(uint16_t reg, uint16_t *value)
+{
+    (void)reg;
+    *value = 1;
+    return MB_EXC_NONE;
+}
+
+static void test_maintenance_refuses_probe_writes(void)
+{
+    drv_rgb_i2c2_probe_register();
+    mb_reg_bind(MB_L011_UPDATE_MODE, maintenance_active, 0);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(108U, 1U));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(109U, 10U));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(110U, 100U));
+    mb_reg_bind(MB_L011_UPDATE_MODE, 0, 0);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(109U, 10U));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_maintenance_refuses_probe_writes);
     RUN_TEST(test_guard_recovery_invalidates_heater_write_before_hal);
     RUN_TEST(test_error_counters_and_event_log_preserve_arlo_payload);
     RUN_TEST(test_af_and_timeout_are_separate_from_recovery);

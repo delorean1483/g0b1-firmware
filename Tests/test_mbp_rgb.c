@@ -170,9 +170,29 @@ static void test_pwm_selector_sets_staged_wake_and_requires_off(void)
     TEST_ASSERT_EQUAL_HEX8(0x35, f.regs[1]);
 }
 
+static modbus_exc_t active_maintenance(uint16_t reg, uint16_t *value)
+{
+    (void)reg;
+    *value = 1;
+    return MB_EXC_NONE;
+}
+
+static void test_maintenance_refuses_lamp_writes(void)
+{
+    mb_reg_bind(MB_L011_UPDATE_MODE, active_maintenance, NULL);
+    for (uint16_t reg = 76U; reg <= 78U; ++reg) {
+        TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(reg, 1U));
+        TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(reg, 0U));
+    }
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(155U, 400U));
+    mb_reg_bind(MB_L011_UPDATE_MODE, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_write(76U, 1U));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_maintenance_refuses_lamp_writes);
     RUN_TEST(test_pwm_selector_sets_staged_wake_and_requires_off);
     RUN_TEST(test_retry_ring_reads_through_modbus_frame);
     RUN_TEST(test_write_channels_set_requested);

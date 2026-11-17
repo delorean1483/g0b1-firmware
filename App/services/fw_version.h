@@ -58,7 +58,7 @@
 #ifdef RGB_BENCH_INJECTION
 #define G0B1_FW_VERSION_PATCH 3u /* Bench fault-injection image only. */
 #else
-#define G0B1_FW_VERSION_PATCH 6u
+#define G0B1_FW_VERSION_PATCH 16u
 #endif
 
 /* single-register encoding: major*10000 + minor*100 + patch  (max 6.55.35) */
