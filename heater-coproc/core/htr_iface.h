@@ -32,4 +32,9 @@ void    htr_iface_process(uint32_t now);
 bool    htr_iface_ready(void);
 uint8_t htr_iface_wiring(void);                               /* HTR_WIRING_NONE if off */
 bool    htr_iface_rx_level(uint8_t wiring);
+/* Keep the TX stage supply (+5V_HTR) on while a 4-wire heater is on the line,
+   including between detection attempts. Only the supply: the mux, UART and
+   mode lines still follow enable/disable. */
+void    htr_iface_hold_power(bool hold);
+bool    htr_iface_power_held(void);
 #endif

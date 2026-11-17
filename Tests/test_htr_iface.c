@@ -59,10 +59,37 @@ void test_disable_disconnects_first(void){
     TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_PWR]); TEST_ASSERT_FALSE(g.attached[HTR_WIRING_4W]);
     TEST_ASSERT_EQUAL_UINT8(HTR_WIRING_NONE, htr_iface_wiring());
 }
+/* ---- 0.2.3 power hold ---- */
+void test_hold_keeps_supply_through_disable_but_disconnects(void){
+    htr_iface_init(&g.api,false); htr_iface_hold_power(true);
+    TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]); TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_EN]);
+    htr_iface_enable(HTR_WIRING_4W,0); htr_iface_process(10); htr_iface_disable();
+    TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]);
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_EN]); TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_MODE]);
+    TEST_ASSERT_FALSE(g.attached[HTR_WIRING_4W]);
+}
+void test_release_hold_turns_supply_off_only_when_not_needed(void){
+    htr_iface_init(&g.api,false); htr_iface_hold_power(true);
+    htr_iface_enable(HTR_WIRING_4W,0); htr_iface_process(10);
+    htr_iface_hold_power(false);
+    TEST_ASSERT_TRUE(g.line[HTR_LINE_TX_PWR]);           /* 4W enabled still needs it */
+    htr_iface_disable();
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_PWR]);
+    htr_iface_hold_power(true); htr_iface_hold_power(false);
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_PWR]);
+}
+void test_init_clears_hold(void){
+    htr_iface_init(&g.api,false); htr_iface_hold_power(true);
+    htr_iface_init(&g.api,false);
+    TEST_ASSERT_FALSE(g.line[HTR_LINE_TX_PWR]); TEST_ASSERT_FALSE(htr_iface_power_held());
+}
 int main(void){ UNITY_BEGIN();
     RUN_TEST(test_init_drives_everything_safe_disconnect_first);
     RUN_TEST(test_enable_4w_powers_settles_then_attaches_and_connects);
     RUN_TEST(test_enable_3w_leaves_tx_power_off_unless_board_says);
     RUN_TEST(test_class_change_goes_through_safe_state);
     RUN_TEST(test_disable_disconnects_first);
+        RUN_TEST(test_hold_keeps_supply_through_disable_but_disconnects);
+    RUN_TEST(test_release_hold_turns_supply_off_only_when_not_needed);
+    RUN_TEST(test_init_clears_hold);
     return UNITY_END(); }

@@ -68,6 +68,7 @@ static void begin_sense(uint32_t now)
 static void start_detection(uint32_t now, bool boot)
 {
     if (s_type_setting == HTR_TYPE_NONE) {
+        htr_iface_hold_power(false);
         htr_iface_disable();
         s_drv = NULL;
         s_det = DET_DONE;
@@ -78,6 +79,7 @@ static void start_detection(uint32_t now, bool boot)
     if (s_type_setting != HTR_TYPE_AUTO) {
         /* Forced type (bench override): no sensing, no probing. */
         s_drv = driver_for_type(s_type_setting);
+        htr_iface_hold_power(false);   /* forced: power follows the iface enable */
         htr_iface_disable();
         if (s_drv == NULL) {
             s_det = DET_DONE;
@@ -164,6 +166,9 @@ static void detect_step(uint32_t now)
                                      (b_hi ? HTR_LS_B_IDLE_HIGH : 0u) |
                                      (cls << HTR_LS_CLASS_SHIFT));
         }
+        /* +5V_HTR follows the 4-wire signature: on as soon as a 4-wire heater
+           is seen, held across retries, dropped when the signature goes away. */
+        htr_iface_hold_power(cls == HTR_LS_CLASS_4W);
         if (cls == HTR_LS_CLASS_NONE) { det_fail(HTR_DET_NO_HEATER, now); return; }
         /* Safety: the 4-wire push-pull driver only with the 4-wire signature;
            ambiguous lines get only the open-drain 3-wire probes. */
