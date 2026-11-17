@@ -4,6 +4,11 @@
 #include "heater.h"
 static bool s_bench_abort;
 static unsigned s_bench_fill_clocks;
+/* 2203+: successful STOP writes, zero readbacks, keyed START attempts,
+   heartbeat writes, first raw status, and most recent heartbeat tick. */
+static uint16_t s_heater_evidence[13];
+/* Last successful normal heater status poll. Modbus reads never query I2C. */
+static uint16_t s_live_heater[11];
 #endif
 #include "main.h"
 #include "mb_regmodel.h"
@@ -123,6 +128,51 @@ static void trace_begin(uint8_t *buffer, uint16_t length)
 static void log_result(int write, unsigned retry, uint8_t address, uint8_t reg,
                        const uint8_t *data, uint16_t len, HAL_StatusTypeDef status)
 {
+#ifdef HEATER_BENCH_FAULTS
+    if (address == HTR_I2C_ADDR7 && len != 0u) {
+        if (write && reg == HTR_R_RUN_REQUEST && data[0] == HTR_RUN_KEY)
+            ++s_heater_evidence[2];
+        if (status == HAL_OK) {
+            if (reg == HTR_R_RUN_REQUEST && data[0] == 0u)
+                ++s_heater_evidence[write ? 0 : 1];
+            if (write && reg == HTR_R_HOST_HEARTBEAT) {
+                ++s_heater_evidence[3];
+                uint32_t tick = HAL_GetTick();
+                s_heater_evidence[10] = (uint16_t)tick;
+                s_heater_evidence[11] = (uint16_t)(tick >> 16);
+                s_heater_evidence[12] = data[0];
+            }
+            if (!write && reg == HTR_R_HEATER_TYPE && len == HTR_REG_COUNT - reg) {
+                uint32_t tick = HAL_GetTick();
+                ++s_live_heater[0];
+                s_live_heater[1] = (uint16_t)tick;
+                s_live_heater[2] = (uint16_t)(tick >> 16);
+                s_live_heater[3] = data[HTR_R_RUN_REQUEST - reg];
+                s_live_heater[4] = data[HTR_R_PHASE - reg];
+                s_live_heater[5] = data[HTR_R_FLAGS - reg] |
+                                  (data[HTR_R_FLAGS + 1u - reg] << 8);
+                s_live_heater[6] = data[HTR_R_HOST_HEARTBEAT - reg];
+                s_live_heater[7] = data[HTR_R_HOST_IDLE_S - reg] |
+                                  (data[HTR_R_HOST_IDLE_S + 1u - reg] << 8);
+                s_live_heater[8] = data[HTR_R_CMD_RESULT - reg];
+                s_live_heater[9] = data[HTR_R_HEATER_TYPE - reg];
+                if (s_live_heater[7] > s_live_heater[10])
+                    s_live_heater[10] = s_live_heater[7];
+            }
+            if (!write && reg == HTR_R_HEATER_TYPE && len == HTR_REG_COUNT - reg &&
+                s_heater_evidence[4] == 0u) {
+                s_heater_evidence[4] = 1u;
+                s_heater_evidence[5] = data[HTR_R_RUN_REQUEST - reg];
+                s_heater_evidence[6] = data[HTR_R_PHASE - reg];
+                s_heater_evidence[7] = data[HTR_R_FLAGS - reg] |
+                                      (data[HTR_R_FLAGS + 1u - reg] << 8);
+                s_heater_evidence[8] = data[HTR_R_HOST_IDLE_S - reg] |
+                                      (data[HTR_R_HOST_IDLE_S + 1u - reg] << 8);
+                s_heater_evidence[9] = data[HTR_R_HOST_TIMEOUT_S - reg];
+            }
+        }
+    }
+#endif
     uint16_t *stats = s_stats[device_index(address)];
     if (write && address == 0x6Cu) {
         ++s_is31_write_attempts;
@@ -428,6 +478,16 @@ int drv_i2c2_write_once(uint8_t a, uint8_t r, const uint8_t *b, uint16_t n, uint
 { return transfer(1, 0, a, r, (uint8_t *)b, n, t); }
 static modbus_exc_t read_diagnostic(uint16_t reg, uint16_t *out)
 {
+#ifdef HEATER_BENCH_FAULTS
+    if (reg >= 2203u && reg <= 2215u) {
+        *out = s_heater_evidence[reg - 2203u];
+        return MB_EXC_NONE;
+    }
+    if (reg >= 2216u && reg <= 2226u) {
+        *out = s_live_heater[reg - 2216u];
+        return MB_EXC_NONE;
+    }
+#endif
     if (reg >= 92 && reg <= 105) {
         *out = s_stats[(reg - 92u) / 7u][(reg - 92u) % 7u];
         return MB_EXC_NONE;
@@ -463,6 +523,10 @@ static modbus_exc_t read_diagnostic(uint16_t reg, uint16_t *out)
 void drv_i2c2_register_diagnostics(void)
 {
     uint16_t reg;
+#ifdef HEATER_BENCH_FAULTS
+    for (reg = 2203u; reg <= 2215u; ++reg) mb_reg_bind(reg, read_diagnostic, 0);
+    for (reg = 2216u; reg <= 2226u; ++reg) mb_reg_bind(reg, read_diagnostic, 0);
+#endif
     for (reg = 80; reg <= 83; ++reg) mb_reg_bind(reg, read_diagnostic, 0);
     for (reg = 92; reg <= 107; ++reg) mb_reg_bind(reg, read_diagnostic, 0);
     for (reg = 135; reg <= 138; ++reg) mb_reg_bind(reg, read_diagnostic, 0);

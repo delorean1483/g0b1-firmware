@@ -31,7 +31,7 @@ typedef enum {
 
 /* 80-83 are I2C2 recovery diagnostics; 84-91 are lamp verification diagnostics. */
 #ifdef HEATER_BENCH_FAULTS
-#define MB_REG_MAX     2131u
+#define MB_REG_MAX     2226u
 #else
 #define MB_REG_MAX     2130u
 #endif
