@@ -65,6 +65,26 @@ maintenance after the heater app responds with the expected identity and
 map. The CRCs detect corruption on the trusted bench link. They do not
 authenticate the image.
 
+## G0B1 diagnostic registers (1.3.16 and newer)
+
+These are read-only holding register numbers. Subtract 1 for the Modbus
+wire address. Registers 2227 and 2228 contain the identified L011 firmware
+version: 2227 packs major in the high byte and minor in the low byte,
+and 2228 contains the build. Both read zero while the L011 is unidentified.
+
+Register 2229 records the last `0xB011` entry refusal. Successful entry
+clears it. The values are:
+
+| Code | Reason |
+| --- | --- |
+| 0 | No refusal recorded |
+| 1 | L011 phase is not OFF |
+| 2 | G0B1 or L011 run request is set |
+| 3 | Lamp is on, requested on, or its off state has not been verified |
+| 4 | L011 app identity or map version does not match |
+| 5 | Heater mode is enabled |
+| 6 | Loader or I²C communication failed |
+
 ## Physical acceptance test
 
 With outputs isolated, interrupt power during an app page write, reconnect,

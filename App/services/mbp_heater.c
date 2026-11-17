@@ -81,6 +81,8 @@ RO(rd_caps, t.caps)
 RO(rd_phase, t.phase)
 RO(rd_vendor_state, t.vendor_state)
 RO(rd_detect, t.detect)
+RO(rd_fw_version, t.fw_version)
+RO(rd_fw_build, t.fw_build)
 
 void mbp_heater_register(void) {
     mb_reg_bind(53, rd_request,           wr_request);
@@ -111,4 +113,6 @@ void mbp_heater_register(void) {
     mb_reg_bind(73, rd_detect,            0);
     mb_reg_bind(74, rd_type_select,       wr_type_select);
     mb_reg_bind(75, rd_command,           wr_command);
+    mb_reg_bind(MB_L011_FW_VERSION, rd_fw_version, 0);
+    mb_reg_bind(MB_L011_FW_BUILD, rd_fw_build, 0);
 }

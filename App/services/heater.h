@@ -33,6 +33,8 @@ typedef struct {
     uint16_t caps;
     uint8_t  phase;             /* full generic phase 0..6 */
     uint16_t vendor_state;      /* major<<8 | sub */
+    uint16_t fw_version;        /* L011 major<<8 | minor */
+    uint16_t fw_build;          /* L011 identity block, little-endian */
     uint16_t detect;            /* DETECT_RESULT<<8 | LINE_SENSE */
     uint8_t  present;           /* coprocessor identified (DEVICE_ID + MAP_VERSION ok) */
     uint8_t  cmd_result;        /* coprocessor CMD_RESULT of the last command (HTR_RES_*) */

@@ -9,6 +9,15 @@ import zlib
 from bl_flash import BLError, Link, _strip_and_check_crc, modbus_crc16
 
 MODE, STATUS, LENGTH, DATA = range(2132, 2136)
+ENTRY_REJECT = 2229
+ENTRY_REASONS = {
+    1: "L011 phase is not OFF",
+    2: "a heater run request is set",
+    3: "lamp off has not been verified",
+    4: "L011 app identity or map version does not match",
+    5: "heater mode is enabled",
+    6: "loader or I2C communication failed",
+}
 
 
 class UpdateLink(Link):
@@ -58,13 +67,23 @@ def update(link, image):
     for _ in range(8):
         try:
             link.write_words(MODE, [0xB011])
+        except BLError as error:
+            print(f"L011 bridge entry failed: {error}", flush=True)
+            try:
+                reason = link.read_holding(ENTRY_REJECT - 1, 1)[0]
+            except BLError:
+                pass  # Older bridge firmware does not expose the register.
+            else:
+                if reason:
+                    print(f"L011 bridge rejected entry ({reason}): "
+                          f"{ENTRY_REASONS.get(reason, 'unknown rejection code')}", flush=True)
+        else:
             time.sleep(0.25)
-            if link.status() & 0x100:
-                break
-        except BLError:
-            # The bridge can reject entry while the app or shared bus settles.
-            # The firmware rechecks all interlocks on every attempt.
-            pass
+            try:
+                if link.status() & 0x100:
+                    break
+            except BLError:
+                pass
         time.sleep(0.65)
     else:
         raise BLError(

@@ -16,17 +16,29 @@
 
 _Static_assert(END == MB_L011_UPDATE_LAST + 1u, "L011 update register range mismatch");
 
+typedef enum {
+    ENTRY_OK = 0,
+    ENTRY_PHASE = 1,
+    ENTRY_RUN = 2,
+    ENTRY_LAMP = 3,
+    ENTRY_IDENTITY = 4,
+    ENTRY_MODE = 5,
+    ENTRY_I2C = 6
+} entry_result_t;
+
+static entry_result_t last_rejection;
 static bool maintenance;
 static uint8_t staging[L011_FRAME_MAX + 1u];
 static uint16_t length, status;
 
 bool drv_l011_update_active(void) { return maintenance; }
 
-static bool app_identity(void)
+static entry_result_t app_identity(void)
 {
     uint8_t id[2];
-    return drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_DEVICE_ID, id, sizeof(id), TIMEOUT) == 0 &&
-           id[0] == HTR_DEVICE_ID && id[1] == HTR_MAP_VERSION;
+    if (drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_DEVICE_ID, id, sizeof(id), TIMEOUT) != 0)
+        return ENTRY_I2C;
+    return id[0] == HTR_DEVICE_ID && id[1] == HTR_MAP_VERSION ? ENTRY_OK : ENTRY_IDENTITY;
 }
 
 static bool boot_reply(uint8_t reply[4])
@@ -35,38 +47,44 @@ static bool boot_reply(uint8_t reply[4])
            reply[0] == L011_BOOT_ID;
 }
 
-static bool acquire(void)
+static entry_result_t acquire(void)
 {
     uint8_t requested[3], applied[3], reply[4], control, phase;
     uint16_t heater_mode;
-    if (mb_reg_read(10u, &heater_mode) != MB_EXC_NONE || heater_mode || heater_get_request())
-        return false;
+    if (mb_reg_read(10u, &heater_mode) != MB_EXC_NONE) return ENTRY_I2C;
+    if (heater_mode) return ENTRY_MODE;
+    if (heater_get_request()) return ENTRY_RUN;
     rgb_get_requested(requested);
     rgb_get_applied(applied);
     if (!(rgb_get_status() & RGB_ST_APPLY_OK) ||
         (requested[0] | requested[1] | requested[2] | applied[0] | applied[1] | applied[2]))
-        return false;
+        return ENTRY_LAMP;
     if (boot_reply(reply)) {
         maintenance = true;
         heater_forget_coproc();
-        return true;
+        return ENTRY_OK;
     }
-    if (!app_identity() ||
-        drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_RUN_REQUEST, &control, 1, TIMEOUT) ||
-        drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_PHASE, &phase, 1, TIMEOUT) ||
-        control || phase != HTR_PHASE_OFF) return false;
+    entry_result_t identity = app_identity();
+    if (identity != ENTRY_OK) return identity;
+    if (drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_RUN_REQUEST, &control, 1, TIMEOUT))
+        return ENTRY_I2C;
+    if (control) return ENTRY_RUN;
+    if (drv_i2c2_read(HTR_I2C_ADDR7, HTR_R_PHASE, &phase, 1, TIMEOUT))
+        return ENTRY_I2C;
+    if (phase != HTR_PHASE_OFF) return ENTRY_PHASE;
     maintenance = true;
     heater_forget_coproc();
     const uint8_t key[] = {L011_ENTER_KEY, L011_ENTER_KEY ^ 0xFFu};
     /* An ambiguous write can have reset the L011. Check both addresses afterward. */
     (void)drv_i2c2_write_once(HTR_I2C_ADDR7, L011_ENTER_REG, key, sizeof(key), TIMEOUT);
-    return true;
+    return ENTRY_OK;
 }
 
 static modbus_exc_t read_reg(uint16_t reg, uint16_t *out)
 {
     if (reg == FIRST) *out = maintenance;
     else if (reg == STATUS) *out = status;
+    else if (reg == MB_L011_UPDATE_REJECT) *out = (uint16_t)last_rejection;
     else *out = 0;
     return MB_EXC_NONE;
 }
@@ -74,20 +92,21 @@ static modbus_exc_t read_reg(uint16_t reg, uint16_t *out)
 static modbus_exc_t write_reg(uint16_t reg, uint16_t value)
 {
     if (reg == FIRST && value == 0xB011u) {
-        if (!acquire()) return MB_EXC_ILLEGAL_VALUE;
+        last_rejection = acquire();
+        if (last_rejection != ENTRY_OK) return MB_EXC_ILLEGAL_VALUE;
         length = status = 0;
         return MB_EXC_NONE;
     }
     if (!maintenance) return MB_EXC_ILLEGAL_VALUE;
     if (reg == FIRST && value == 0xB012u) {
-        if (!app_identity() || heater_get_request()) return MB_EXC_ILLEGAL_VALUE;
+        if (app_identity() != ENTRY_OK || heater_get_request()) return MB_EXC_ILLEGAL_VALUE;
         rgb_set_logical(0, 0, 0);
         heater_forget_coproc();
         maintenance = false;
     } else if (reg == FIRST && value == 0xB013u) {
         uint8_t reply[4];
         if (boot_reply(reply)) status = 0x100u | reply[1];
-        else status = app_identity() ? 0x200u : 0u;
+        else status = app_identity() == ENTRY_OK ? 0x200u : 0u;
         if (length && (status & 0x100u) &&
             (reply[2] != staging[length - 2u] || reply[3] != staging[length - 1u]))
             status = 0x100u;
@@ -112,4 +131,5 @@ void drv_l011_update_register(void)
 {
     for (uint16_t reg = FIRST; reg < END; ++reg)
         mb_reg_bind(reg, read_reg, reg == STATUS ? 0 : write_reg);
+    mb_reg_bind(MB_L011_UPDATE_REJECT, read_reg, 0);
 }

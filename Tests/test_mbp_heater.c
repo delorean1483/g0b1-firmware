@@ -100,8 +100,36 @@ static void test_maintenance_refuses_request_and_command(void)
     TEST_ASSERT_EQUAL_UINT8(0U, c.regs[HTR_R_RUN_REQUEST]);
 }
 
+static void test_l011_version_identified_and_forgotten(void)
+{
+    uint16_t words[2];
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(MB_L011_FW_VERSION, &words[0]));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(MB_L011_FW_BUILD, &words[1]));
+    TEST_ASSERT_EQUAL_UINT16(0U, words[0]);
+    TEST_ASSERT_EQUAL_UINT16(0U, words[1]);
+    c.regs[HTR_R_FW_MAJOR] = 1U;
+    c.regs[HTR_R_FW_MINOR] = 2U;
+    c.regs[HTR_R_FW_BUILD] = 0x34U;
+    c.regs[HTR_R_FW_BUILD + 1U] = 0x12U;
+    heater_note_cortex_traffic(0U);
+    heater_process(0U);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(MB_L011_FW_VERSION, &words[0]));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(MB_L011_FW_BUILD, &words[1]));
+    TEST_ASSERT_EQUAL_HEX16(0x0102U, words[0]);
+    TEST_ASSERT_EQUAL_HEX16(0x1234U, words[1]);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_write(MB_L011_FW_VERSION, 0U));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_ADDRESS, mb_reg_write(MB_L011_FW_BUILD, 0U));
+
+    heater_forget_coproc();
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(MB_L011_FW_VERSION, &words[0]));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE, mb_reg_read(MB_L011_FW_BUILD, &words[1]));
+    TEST_ASSERT_EQUAL_UINT16(0U, words[0]);
+    TEST_ASSERT_EQUAL_UINT16(0U, words[1]);
+}
+
 int main(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_l011_version_identified_and_forgotten);
     RUN_TEST(test_maintenance_refuses_request_and_command);
     RUN_TEST(test_write_request_and_level);
     RUN_TEST(test_out_of_range_rejected);

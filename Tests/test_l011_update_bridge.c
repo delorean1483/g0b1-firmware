@@ -11,21 +11,23 @@
 #include "modbus_crc.h"
 #include "rgb.h"
 
-static bool boot, busy, running, lit, wrong_map;
+static bool boot, busy, running, lit, wrong_map, bus_failed, local_run, lamp_unverified;
+static uint16_t mode_value;
 static uint8_t phase;
 static unsigned transfers, resets;
 static uint8_t response[4] = { L011_BOOT_ID };
 
-uint8_t heater_get_request(void) { return 0; }
+uint8_t heater_get_request(void) { return local_run; }
 void heater_forget_coproc(void) { ++resets; }
 void rgb_set_logical(uint8_t r, uint8_t g, uint8_t b) { assert(!(r | g | b)); }
 void rgb_get_requested(uint8_t out[3]) { out[0] = lit; out[1] = out[2] = 0; }
 void rgb_get_applied(uint8_t out[3]) { rgb_get_requested(out); }
-uint16_t rgb_get_status(void) { return RGB_ST_APPLY_OK; }
+uint16_t rgb_get_status(void) { return lamp_unverified ? 0U : RGB_ST_APPLY_OK; }
 
 int drv_i2c2_read(uint8_t address, uint8_t reg, uint8_t *data, uint16_t len, uint32_t timeout)
 {
     (void)timeout;
+    if (bus_failed) return -1;
     if (address == L011_BOOT_ADDR && boot && !busy) {
         assert(reg == 0 && len == 4);
         memcpy(data, response, len);
@@ -62,8 +64,21 @@ int drv_i2c2_write_once(uint8_t address, uint8_t reg, const uint8_t *data,
 static modbus_exc_t heater_mode(uint16_t reg, uint16_t *value)
 {
     assert(reg == 10);
-    *value = 0;
+    *value = mode_value;
     return MB_EXC_NONE;
+}
+
+static uint16_t rejection(void)
+{
+    uint16_t code;
+    assert(mb_reg_read(MB_L011_UPDATE_REJECT, &code) == MB_EXC_NONE);
+    return code;
+}
+
+static void expect_rejection(uint16_t code)
+{
+    assert(mb_reg_write(MB_L011_UPDATE_MODE, 0xB011) == MB_EXC_ILLEGAL_VALUE);
+    assert(rejection() == code);
 }
 
 void setUp(void) {}
@@ -76,18 +91,36 @@ int main(void)
     mb_reg_reset();
     mb_reg_bind(10, heater_mode, 0);
     drv_l011_update_register();
+    assert(rejection() == 0);
+    assert(mb_reg_write(MB_L011_UPDATE_REJECT, 1u) == MB_EXC_ILLEGAL_ADDRESS);
     lit = true;
-    assert(mb_reg_write(mode, 0xB011) != MB_EXC_NONE);
+    expect_rejection(3);
     lit = false;
+    lamp_unverified = true;
+    expect_rejection(3);
+    lamp_unverified = false;
     running = true;
-    assert(mb_reg_write(mode, 0xB011) != MB_EXC_NONE);
+    expect_rejection(2);
     running = false;
+    local_run = true;
+    expect_rejection(2);
+    local_run = false;
     phase = HTR_PHASE_DETECTING;
-    assert(mb_reg_write(mode, 0xB011) == MB_EXC_ILLEGAL_VALUE);
+    expect_rejection(1);
     phase = HTR_PHASE_OFF;
+    wrong_map = true;
+    expect_rejection(4);
+    wrong_map = false;
+    mode_value = 1;
+    expect_rejection(5);
+    mode_value = 0;
+    bus_failed = true;
+    expect_rejection(6);
+    bus_failed = false;
     assert(!drv_l011_update_active() && !transfers);
     assert(mb_reg_write(mode, 0xB011) == MB_EXC_NONE);
     assert(drv_l011_update_active() && boot && transfers == 1 && resets == 1);
+    assert(rejection() == 0);
     assert(mb_reg_write(mode, 0xB012) != MB_EXC_NONE);
     assert(mb_reg_write(mode + 2, 3) == MB_EXC_NONE);
     assert(mb_reg_write(mode, 0xB014) != MB_EXC_NONE);

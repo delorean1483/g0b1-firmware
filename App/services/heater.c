@@ -288,7 +288,7 @@ static void stop_mismatched_coproc(uint32_t now, uint8_t map)
 
 static bool check_map(uint32_t now)
 {
-    uint8_t id[2];
+    uint8_t id[HTR_R_FW_BUILD + 2U];
     if (s_bus->read(s_bus->ctx, HTR_R_DEVICE_ID, id, sizeof id) != 0) {
         close_write_gate(HEATER_FLAG_MAP_UNREADABLE);
         if (s_ever_identified) xport_fail(now);
@@ -301,6 +301,8 @@ static bool check_map(uint32_t now)
         if (id[0] == HTR_DEVICE_ID) stop_mismatched_coproc(now, id[1]);
         return false;
     }
+    s_t.fw_version = (uint16_t)(((uint16_t)id[HTR_R_FW_MAJOR] << 8) | id[HTR_R_FW_MINOR]);
+    s_t.fw_build = le16(id, HTR_R_FW_BUILD);
     s_identified = s_ever_identified = 1U;
     s_map_fault = 0U;
     return true;
@@ -597,4 +599,9 @@ bool heater_send_command(uint8_t cmd)
     s_cmd_pending = cmd;
     return true;
 }
-void heater_get_telemetry(heater_telemetry_t *out) { if (out != NULL) *out = s_t; }
+void heater_get_telemetry(heater_telemetry_t *out)
+{
+    if (out == NULL) return;
+    *out = s_t;
+    if (!s_identified) out->fw_version = out->fw_build = 0U;
+}
