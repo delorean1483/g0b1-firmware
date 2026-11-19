@@ -51,6 +51,20 @@ size_t AT_BuildSettingsWrite(int8_t setpoint_c, uint8_t out[13])
     return AT_BuildFrame(AT_DIR_REQ, AT_CMD_SETTINGS, p, 6u, out);
 }
 
+size_t AT_BuildStartMode(uint8_t source, int8_t setpoint_c, uint8_t wait,
+                         uint8_t power, uint8_t out[14])
+{
+    uint8_t p[7] = { 0xFFu, 0xFFu, source, (uint8_t)setpoint_c, wait, power, 0x11u };
+    return AT_BuildFrame(AT_DIR_REQ, AT_CMD_START, p, 7u, out);
+}
+
+size_t AT_BuildSettingsMode(uint8_t source, int8_t setpoint_c, uint8_t wait,
+                            uint8_t power, uint8_t out[13])
+{
+    uint8_t p[6] = { 0xFFu, 0xFFu, source, (uint8_t)setpoint_c, wait, power };
+    return AT_BuildFrame(AT_DIR_REQ, AT_CMD_SETTINGS, p, 6u, out);
+}
+
 void AT_ParserReset(at_parser_t *p)
 {
     p->idx = 0u;

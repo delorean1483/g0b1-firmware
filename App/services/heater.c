@@ -7,6 +7,8 @@
 static const i2c_backend_t *s_bus;
 static void (*s_reset)(void);
 static uint8_t s_request;
+static uint8_t s_control_mode;
+static bool s_control_pending;
 static bool s_on_held, s_request_started;
 static bool s_start_unconfirmed, s_request_again, s_start_expired, s_start_armed;
 static uint32_t s_start_at;
@@ -129,6 +131,8 @@ void heater_init(const i2c_backend_t *bus, void (*reset_coproc)(void), uint32_t 
     s_on_held = false;
     s_request_started = false;
     s_level = 1U;
+    s_control_mode = HTR_MODE_TEMPERATURE;
+    s_control_pending = false;
     s_setpoint = 20;
     s_ambient_x10 = HTR_AMBIENT_UNKNOWN;
     s_type_select = HTR_TYPE_AUTO;
@@ -187,6 +191,9 @@ static void decode_status(const uint8_t *m)
     s_t.valid_frames = le16(m, HTR_R_VALID_FRAMES);
     s_t.checksum_failures = le16(m, HTR_R_CRC_FAILS);
     s_t.caps = le16(m, HTR_R_CAPS);
+    s_t.control_mode = (s_t.caps & HTR_CAP_POWER_MODE) &&
+        m[HTR_R_ACTIVE_TYPE] == HTR_TYPE_AUTOTERM && m[HTR_R_CONTROL_MODE] <= HTR_MODE_POWER ?
+        m[HTR_R_CONTROL_MODE] : HTR_MODE_TEMPERATURE;
     s_t.vendor_state = (uint16_t)(((uint16_t)m[HTR_R_VENDOR_STATE] << 8) | m[HTR_R_VENDOR_SUB]);
     s_t.detect = (uint16_t)(((uint16_t)m[HTR_R_DETECT_RESULT] << 8) | m[HTR_R_LINE_SENSE]);
     if (f & HTR_F_FRESH) legacy |= HEATER_FLAG_FRESH;
@@ -224,6 +231,7 @@ static void drop_request(void)
 
 static void close_write_gate(uint16_t fault)
 {
+    s_control_pending = false;
     s_identified = 0U;
     s_status_seen = false;
     s_map_fault = fault;
@@ -476,6 +484,18 @@ void heater_process(uint32_t now)
         if (s_request != 0U) goto publish;
     }
     ctl[0] = s_silence_stop || !s_request ? 0U : HTR_RUN_KEY;
+    /* Never touch the unused extension on an old L011. A mode change is a
+       settings write only, independent of the keyed RUN_REQUEST path. */
+    if (s_control_pending && !s_silence_stop && (!m[HTR_R_RUN_REQUEST] || s_request)) {
+        if (!(s_t.caps & HTR_CAP_POWER_MODE) || s_t.type != HTR_TYPE_AUTOTERM)
+            s_control_pending = false;
+        else if (m[HTR_R_CONTROL_MODE] == s_control_mode) s_control_pending = false;
+        else {
+            if (write_checked(HTR_R_CONTROL_MODE, &s_control_mode, 1U) != 0) goto write_failed;
+            s_last_ok = now;
+            goto publish; /* confirm applied readback before any new START */
+        }
+    }
     ctl[1] = s_level;
     ctl[2] = (uint8_t)s_setpoint;
     ctl[3] = (uint8_t)((uint16_t)s_ambient_x10 & 0xFFU);
@@ -576,6 +596,18 @@ void    heater_set_level(uint8_t level) { if ((level >= 1U) && (level <= 10U)) s
 uint8_t heater_get_level(void) { return s_level; }
 void    heater_set_setpoint_c(int8_t c) { if ((c >= 5) && (c <= 30)) s_setpoint = c; }
 int8_t  heater_get_setpoint_c(void) { return s_setpoint; }
+bool heater_set_control_mode(uint8_t mode)
+{
+    if (mode > HTR_MODE_POWER || !s_identified || !(s_t.caps & HTR_CAP_POWER_MODE) ||
+        s_t.type != HTR_TYPE_AUTOTERM) return false;
+    s_control_mode = mode;
+    s_control_pending = true;
+    return true;
+}
+uint8_t heater_get_control_mode(void)
+{
+    return s_identified ? s_t.control_mode : HTR_MODE_TEMPERATURE;
+}
 void    heater_set_type_select(uint8_t type)
 {
     s_type_select = type;      /* explicit Modbus write: always forwarded once */

@@ -52,7 +52,9 @@ static int br_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len){
         if (fail_start && !deliver_start) return -1;
     }
     htr_regs_i2c_begin(false); htr_regs_i2c_rx(reg);
-    for(uint16_t i=0;i<len;i++) htr_regs_i2c_rx(buf[i]); htr_regs_i2c_end(); return report_failure ? -1 : 0;
+    for(uint16_t i=0;i<len;i++) { htr_regs_i2c_rx(buf[i]); }
+    htr_regs_i2c_end();
+    return report_failure ? -1 : 0;
 }
 static const i2c_backend_t bridge = { br_read, br_write, 0 };
 
@@ -351,7 +353,44 @@ static void test_vevor_cooldown_state_blocks_on(void)
     assert_fresh_on_after_drop();
 }
 
+#ifndef HEATER_OLD_CLIENT_COMPAT
+void test_real_map_mode_pass_through_does_not_replay_start(void){
+    g.high_pct[HTR_WIRING_3W]=0;g.high_pct[HTR_WIRING_4W]=100;
+    fake_ctx[1].probe_answer=HTR_PROBE_FOUND;both_to(10000);
+    TEST_ASSERT_BITS_HIGH(HTR_CAP_POWER_MODE,tel().caps);
+    TEST_ASSERT_EQUAL(0,heater_get_control_mode());
+    TEST_ASSERT_TRUE(heater_set_control_mode(1));heater_set_level(10);heater_set_setpoint_c(27);
+    both_to(11500);
+    TEST_ASSERT_EQUAL(1,heater_get_control_mode());
+    TEST_ASSERT_EQUAL(1,fake_ctx[1].last_rq.control_mode);
+    TEST_ASSERT_EQUAL(10,fake_ctx[1].last_rq.level);TEST_ASSERT_EQUAL(27,fake_ctx[1].last_rq.setpoint_c);
+    TEST_ASSERT_EQUAL(0,start_writes);
+    TEST_ASSERT_TRUE(heater_set_request(1));both_to(12000);
+    fake_ctx[1].hint=HTR_HINT_RUNNING;both_to(12500);
+    TEST_ASSERT_EQUAL(1,start_writes);TEST_ASSERT_EQUAL(1,fake_ctx[1].starts);
+    TEST_ASSERT_TRUE(heater_set_control_mode(0));heater_set_setpoint_c(24);heater_set_level(5);
+    both_to(14000);
+    TEST_ASSERT_EQUAL(0,heater_get_control_mode());TEST_ASSERT_EQUAL(0,fake_ctx[1].last_rq.control_mode);
+    TEST_ASSERT_EQUAL(1,start_writes);TEST_ASSERT_EQUAL(1,fake_ctx[1].starts);
+    TEST_ASSERT_FALSE(tel().flags&HEATER_FLAG_REQUEST_AGAIN);
+}
+#else
+void test_old_client_new_l011_defaults_to_temperature(void){
+    g.high_pct[HTR_WIRING_3W]=0;g.high_pct[HTR_WIRING_4W]=100;
+    fake_ctx[1].probe_answer=HTR_PROBE_FOUND;both_to(10000);
+    heater_set_level(10);heater_set_setpoint_c(25);both_to(11000);
+    TEST_ASSERT_TRUE(heater_set_request(1));both_to(12000);
+    TEST_ASSERT_EQUAL(1,start_writes);
+    TEST_ASSERT_EQUAL(0,fake_ctx[1].last_rq.control_mode);
+    TEST_ASSERT_EQUAL(25,fake_ctx[1].last_rq.setpoint_c);
+}
+#endif
 int main(void){ UNITY_BEGIN();
+#ifndef HEATER_OLD_CLIENT_COMPAT
+    RUN_TEST(test_real_map_mode_pass_through_does_not_replay_start);
+#else
+    RUN_TEST(test_old_client_new_l011_defaults_to_temperature);
+#endif
     RUN_TEST(test_stale_stop_phase_uses_l011_refusal);
     RUN_TEST(test_vevor_cooldown_state_blocks_on);
     RUN_TEST(test_reboot_drops_on_before_key);

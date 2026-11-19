@@ -21,11 +21,13 @@ static int fc_write(void *ctx, uint8_t reg, const uint8_t *buf, uint16_t len)
     if (f->fail) return -1;
     f->last_write_reg = reg;
     f->last_write_len = len;
+    if (reg == HTR_R_RUN_REQUEST && len && buf[0] == HTR_RUN_KEY) f->keyed_writes++;
+    if (reg == HTR_R_CONTROL_MODE) f->mode_writes++;
 #ifdef HEATER_BENCH_FAULTS
     uint16_t mode = heater_bench_take_midbyte();
     if (mode) {
         f->midbyte_mode = mode;
-        heater_bench_log_midbyte(mode, true);
+        heater_bench_log_midbyte(mode, true, 6U);
         /* Model the slave accepting the first byte after recovery fills
            the last two bits with ones. Later bytes never arrive. */
         if (mode == 4U) f->regs[reg] = buf[0] | 3U;

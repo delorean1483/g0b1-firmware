@@ -36,7 +36,7 @@ void test_probe_absent_after_timeout_with_only_stop_polls(void){
     for(size_t i=0;i<u.writes;i++) TEST_ASSERT_EQUAL_HEX8(0x05,u.tx[u.write_off[i]+9]);
 }
 void test_start_uses_request_level(void){
-    htr_request_t rq={1,7,20,HTR_AMBIENT_UNKNOWN};
+    htr_request_t rq={1,7,20,HTR_AMBIENT_UNKNOWN, 0};
     drv_vevor.start(drv_vevor.ctx,&rq); fake_uart_clear_tx(&u);
     drv_vevor.process(drv_vevor.ctx,1000U);
     TEST_ASSERT_EQUAL_HEX8(0x06,u.tx[2]); TEST_ASSERT_EQUAL_HEX8(0x06,u.tx[9]);   /* START */

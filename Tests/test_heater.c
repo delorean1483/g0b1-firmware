@@ -401,7 +401,50 @@ static void test_scl_low_hook_is_one_shot_and_logs_edge(void)
 }
 #endif
 
+void test_old_l011_has_no_mode_writes_and_temperature_controls_unchanged(void){
+    c.regs[HTR_R_ACTIVE_TYPE]=HTR_TYPE_AUTOTERM;
+    put16(HTR_R_CAPS,HTR_CAP_SETPOINT);
+    c.regs[HTR_R_CONTROL_MODE]=255;run_to(500);
+    TEST_ASSERT_EQUAL(0,heater_get_control_mode());
+    TEST_ASSERT_FALSE(heater_set_control_mode(1));
+    TEST_ASSERT_FALSE(heater_set_control_mode(0));
+    heater_set_level(7);heater_set_setpoint_c(24);run_to(1000);
+    TEST_ASSERT_EQUAL(0,c.mode_writes);
+    TEST_ASSERT_EQUAL(7,c.regs[HTR_R_LEVEL]);TEST_ASSERT_EQUAL(24,c.regs[HTR_R_SETPOINT_C]);
+    TEST_ASSERT_EQUAL(0,c.keyed_writes);
+}
+void test_new_l011_mode_applied_readback_and_changes_never_start(void){
+    c.regs[HTR_R_ACTIVE_TYPE]=HTR_TYPE_AUTOTERM;
+    put16(HTR_R_CAPS,HTR_CAP_POWER_MODE|HTR_CAP_LEVEL|HTR_CAP_SETPOINT);
+    run_to(500);TEST_ASSERT_EQUAL(0,heater_get_control_mode());
+    TEST_ASSERT_TRUE(heater_set_control_mode(1));
+    TEST_ASSERT_EQUAL(0,heater_get_control_mode()); /* desired is not applied telemetry */
+    run_to(750);TEST_ASSERT_EQUAL(0,heater_get_control_mode());
+    run_to(1000);TEST_ASSERT_EQUAL(1,heater_get_control_mode());
+    TEST_ASSERT_EQUAL(1,c.mode_writes);TEST_ASSERT_EQUAL(0,c.keyed_writes);
+    TEST_ASSERT_FALSE(heater_set_control_mode(2));
+    TEST_ASSERT_TRUE(heater_set_request(1));run_to(1500);
+    TEST_ASSERT_EQUAL(1,c.keyed_writes);
+    TEST_ASSERT_TRUE(heater_set_control_mode(0));heater_set_level(10);heater_set_setpoint_c(27);
+    run_to(2250);TEST_ASSERT_EQUAL(0,heater_get_control_mode());
+    TEST_ASSERT_EQUAL(1,c.keyed_writes);TEST_ASSERT_EQUAL(0,c.command_writes);
+    TEST_ASSERT_EQUAL(10,c.regs[HTR_R_LEVEL]);TEST_ASSERT_EQUAL(27,c.regs[HTR_R_SETPOINT_C]);
+    TEST_ASSERT_FALSE(tel().flags&HEATER_FLAG_REQUEST_AGAIN);
+    heater_forget_coproc();TEST_ASSERT_EQUAL(0,heater_get_control_mode());
+}
+void test_explicit_off_has_priority_over_pending_mode(void){
+    c.regs[HTR_R_ACTIVE_TYPE]=HTR_TYPE_AUTOTERM;
+    put16(HTR_R_CAPS,HTR_CAP_POWER_MODE);run_to(500);
+    TEST_ASSERT_TRUE(heater_set_request(1));run_to(1000);
+    TEST_ASSERT_TRUE(heater_set_control_mode(1));TEST_ASSERT_TRUE(heater_set_request(0));
+    run_to(1250);TEST_ASSERT_EQUAL(0,c.regs[HTR_R_RUN_REQUEST]);
+    TEST_ASSERT_EQUAL(0,c.mode_writes);TEST_ASSERT_EQUAL(1,c.keyed_writes);
+    run_to(2000);TEST_ASSERT_EQUAL(1,heater_get_control_mode());TEST_ASSERT_EQUAL(1,c.keyed_writes);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_old_l011_has_no_mode_writes_and_temperature_controls_unchanged);
+    RUN_TEST(test_new_l011_mode_applied_readback_and_changes_never_start);
+    RUN_TEST(test_explicit_off_has_priority_over_pending_mode);
     RUN_TEST(test_unarmed_on_sets_operator_feedback);
     RUN_TEST(test_recovery_holds_fresh_on_until_armed_status);
     RUN_TEST(test_recovery_rejects_held_on_when_unarmed);

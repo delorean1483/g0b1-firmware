@@ -6,11 +6,16 @@
 #include "htr_regs.h"
 #include "drv_autoterm.h"
 #include "drv_vevor.h"
+#include "l011_update.h"
 
 static const htr_driver_t *const s_drivers[] = { &drv_vevor, &drv_autoterm };
+extern const uint32_t __app_vectors[];
 
 int main(void)
 {
+    SCB->VTOR = (uint32_t)__app_vectors;
+    __DSB();
+    __ISB();
     port_clock_init();
     port_gpio_init();                 /* safe levels before anything else */
     port_tick_init();
@@ -37,6 +42,19 @@ int main(void)
         port_uart_process(now);
         htr_regs_poll(now);
         htr_fsm_process(now);
+#ifdef L011_RELOCATED_APP
+        if (port_take_update_request()) {
+            htr_fsm_view_t view;
+            htr_fsm_view(now, &view);
+            if (view.phase == HTR_PHASE_OFF && !view.rq.run) {
+                __disable_irq();
+                volatile uint32_t *const request = (volatile uint32_t *)L011_RESET_ADDR;
+                request[0] = L011_RESET_MAGIC;
+                request[1] = ~L011_RESET_MAGIC;
+                NVIC_SystemReset();
+            }
+        }
+#endif
         htr_regs_publish(now, port_uart_echo_errs());
         port_iwdg_kick();
     }

@@ -31,6 +31,7 @@ typedef struct {
     /* regs 68-74 */
     uint8_t  type;              /* ACTIVE_TYPE */
     uint16_t caps;
+    uint8_t  control_mode;      /* L011 applied mode, 0 when unsupported/unidentified */
     uint8_t  phase;             /* full generic phase 0..6 */
     uint16_t vendor_state;      /* major<<8 | sub */
     uint16_t fw_version;        /* L011 major<<8 | minor */
@@ -94,6 +95,8 @@ void    heater_set_level(uint8_t level);          /* 1..10, else ignored */
 uint8_t heater_get_level(void);
 void    heater_set_setpoint_c(int8_t c);          /* 5..30, else ignored */
 int8_t  heater_get_setpoint_c(void);
+bool    heater_set_control_mode(uint8_t mode);
+uint8_t heater_get_control_mode(void);
 void    heater_set_type_select(uint8_t type);     /* HTR_TYPE_*; forwarded once per call */
 uint8_t heater_get_type_select(void);
 void    heater_set_ambient_f(int16_t deg_f);      /* cabin temp for AUTOTERM regulation */

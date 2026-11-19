@@ -76,8 +76,10 @@ Record reg 0x44 LINE_SENSE each time. Expected: none → class 0; VEVOR → bit0
 
 - **Only complete writes apply.** A write is applied at its STOP. One cut by a bus error or a repeated START, or one that touches anything outside 0x10–0x18, is dropped whole and counted in `WRITES_DISCARDED` (0x46).
 - **Heartbeat.** The host is live while it writes a *changed* value to 0x17 at least every `HOST_TIMEOUT_S` (3–60 s, default 10, RAM only). Reads don't count, and neither does rewriting the same value.
-- **Keyed start.** `RUN_REQUEST = 0xA5` starts only while the host is live and the start is armed. `RUN_REQUEST = 0` (or COMMAND 2 STOP) is a clean stop: always accepted, and it arms the next start. An accepted start, a host timeout and a FAULT disarm. Any other RUN_REQUEST value is BAD_ARG and stops without arming. COMMAND 1 START is NOT_SUPPORTED.
-- **Refused starts** set CMD_RESULT 5 NOT_ARMED or 6 NO_HOST (4 NO_TYPE as before) and FLAGS b11 `START_REFUSED`. The G0B1 latches its request off on `START_REFUSED`, `HOST_TIMEOUT_STOP` or FAULT, so replaying its old block can't restart the heater.
+- **Keyed start.** `RUN_REQUEST = 0xA5` starts only while the host is live, the start is armed, and the heater is idle (PHASE 0 off). `RUN_REQUEST = 0` (or COMMAND 2 STOP) is a clean stop: always accepted, and it arms the next start. An accepted start, a refused start, a host timeout and a FAULT disarm. Any other RUN_REQUEST value is BAD_ARG and stops without arming. COMMAND 1 START is NOT_SUPPORTED.
+- **Refused starts** set CMD_RESULT 1 BUSY (stopping, cooling down, detecting or FAULT; from fw 0.2.2), 5 NOT_ARMED or 6 NO_HOST (4 NO_TYPE as before), FLAGS b11 `START_REFUSED`, and disarm. A start is never held: one accepted during cooldown used to restart the heater minutes later at standby. Disarming is what stops the G0B1 from re-sending its key: it drops its request whenever START_ARMED is clear (the START_REFUSED edge alone misses a second refusal in a row), and its next RUN 0 re-arms for the user's next ON.
+- **`HOST_TIMEOUT_STOP`** (FLAGS b5) is set when a host timeout stops a running request and, from fw 0.2.2, stays set until the next accepted start (a clean stop no longer clears it), so a timeout stop is visible afterwards.
+- **Coprocessor reset with the heater running:** after the 3 s boot quiet the driver polls STOP; a heater reporting STARTING/RUNNING with no request goes to STOP_REQUESTED, and one reporting COOLDOWN is tracked as COOLDOWN (fw 0.2.2). Either way a fresh keyed start is needed, and it is refused until standby.
 - **EEPROM.** Only the heater type is persisted. The old minutes byte is written as 10 so a rolled-back v1 image still has its 10-minute timeout.
 
 ## Register cheat sheet (full map: `heater-common/htr_i2c_map.h`)
@@ -97,3 +99,63 @@ Record reg 0x44 LINE_SENSE each time. Expected: none → class 0; VEVOR → bit0
 | 0x42 | HOST_IDLE_S | seconds since the last valid heartbeat |
 | 0x44 / 0x45 | LINE_SENSE / DETECT_RESULT | auto-detect diagnostics |
 | 0x46 | WRITES_DISCARDED | u16, dropped partial or out-of-block writes |
+
+## AUTOTERM selectable mode (L011 0.2.4, G0B1 1.3.17)
+
+Map v2 is retained. The extension uses previously unused I2C byte `0x1A`;
+existing control/status offsets and legacy transactions are unchanged.
+`0x19` remains read-only and cannot be included in a committed control write.
+Write mode as its own one-byte transaction.
+
+| Interface | Register / bit | Meaning |
+|---|---|---|
+| L011 I2C | `0x1A`, RW, persisted | 0 = temperature, 1 = power |
+| L011 CAPS | `0x40..0x41`, bit 8 (`0x0100`, `HTR_CAP_POWER_MODE`) | Set only for the active AUTOTERM driver |
+| G0B1 Modbus | holding **2230**, wire address 2229 | Applied mode, 0 = temperature, 1 = power |
+| G0B1 Modbus | holding 70, bit 8 | Same capability bit, for agent/UI support detection |
+| G0B1 Modbus | holding 54 | Stored level 1..10; used by AUTOTERM in power mode |
+| G0B1 Modbus | holding 69 | Stored setpoint 5..30 C; used in temperature mode |
+
+Both level and setpoint remain writable in either mode. A mode write is
+accepted asynchronously; 2230 continues to show the previous **applied** value
+until a fresh L011 poll confirms it. Unsupported/unidentified devices read 0;
+mode writes on unsupported devices return Modbus ILLEGAL_VALUE (including 0).
+Maintenance also refuses mode writes. On L011, values above 1 leave the register
+unchanged and set BAD_ARG. Power on an active VEVOR returns NOT_SUPPORTED and
+its mode reads 0. VEVOR wire behavior is unchanged.
+
+Temperature START payload: `FF FF 02 <setpoint> 01 FF 11`.
+Temperature SETTINGS payload: `FF FF 02 <setpoint> 01 FF`.
+Power START payload: `FF FF 04 <setpoint> 01 <level-1> 11`.
+Power SETTINGS payload: `FF FF 04 <setpoint> 01 <level-1>`.
+Level 1 maps to 00, level 10 to 09. Wait stays 01 and the START suffix stays 11.
+Temperature reports (command 11, signed whole C) remain every 10 seconds in
+**both** modes, exactly as in the 0.2.90 bench experiment.
+
+An active-mode level/setpoint change or any mode change queues one SETTINGS
+write, with no restart and no new keyed RUN_REQUEST. Inactive values are stored
+without a settings write and used on switching mode. STOP and silence-stop take
+priority. Existing REQUEST_AGAIN, keyed-start, cooldown and 5-second Cortex
+silence behavior remain unchanged.
+
+EEPROM compatibility: the legacy word at 0x08080000 (type, legacy timeout,
+checksum) is unchanged. A separate word at +4 contains 0x4D4F in the upper half,
+mode in byte 0 and its complement in byte 1. Missing/blank/corrupt/out-of-range
+extensions load temperature mode. 0.2.3 ignores the extension on rollback and
+still sees its original type/timeout word. The v2 RAM heartbeat timeout remains
+10 seconds and is not migrated into EEPROM. Re-upgrading preserves a valid
+extension written by 0.2.4; the older image never edits it.
+
+Compatibility checks cover new host/old L011 (no extension writes), old host/new
+L011 (temperature default and unchanged old control block), and new/new mode
+pass-through. No firmware is flashed as part of this change.
+
+### Hardware validation still required
+
+The 0.2.90 experiment supported the tested source 04/power-byte combination,
+but the precise power scale/minimum, wait meaning and trailing 11 meaning are
+not established. Hold levels 10 -> 7 -> 4 -> 1 for 8-10 minutes each in a
+separately authorized bench run. Switching mode while running is implemented
+and mocked but **not hardware-verified**. No release/merge or powered run is
+implied by these builds.
+When rolling back only the G0B1 while retaining L011 0.2.4, set mode to 0 first if temperature behavior is required. A valid persisted power selection otherwise remains in effect; an older host cannot change it. The old-host compatibility test uses a migrated/default temperature record.
