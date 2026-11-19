@@ -15,6 +15,7 @@ typedef struct {
     bool fail_identity;
     bool fail_command_after_accept;
     unsigned command_writes;
+    unsigned keyed_writes, mode_writes;
     unsigned reads, writes;
     uint8_t last_write_reg;
     uint16_t last_write_len;

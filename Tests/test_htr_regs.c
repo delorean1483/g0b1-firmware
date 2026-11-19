@@ -2,6 +2,7 @@
 #include "htr_fsm.h"
 #include "htr_i2c_map.h"
 #include "htr_version.h"
+#include "htr_nv_mode.h"
 #include "fake_htr_driver.h"
 #include "fake_htr_gpio.h"
 #include "fake_htr_uart.h"
@@ -15,7 +16,10 @@ static uint32_t now;
 static bool nv_valid; static uint8_t nv_type, nv_to; static unsigned nv_saves;
 static bool nv_load(void *c, uint8_t *t, uint8_t *to){ (void)c; if(!nv_valid) return false; *t=nv_type; *to=nv_to; return true; }
 static void nv_save(void *c, uint8_t t, uint8_t to){ (void)c; nv_valid=true; nv_type=t; nv_to=to; nv_saves++; }
-static const htr_nv_t nv = { nv_load, nv_save, 0 };
+static bool mode_valid; static uint8_t mode_nv; static unsigned mode_saves;
+static bool load_mode(void *c,uint8_t *m){(void)c;*m=mode_nv;return mode_valid;}
+static void save_mode(void *c,uint8_t m){(void)c;mode_nv=m;mode_valid=true;mode_saves++;}
+static const htr_nv_t nv = { nv_load, nv_save, 0, load_mode, save_mode };
 
 /* I2C master helpers (what the G0B1's Mem_Write / Mem_Read look like). */
 static void mwrite(uint8_t reg, const uint8_t *d, size_t n){
@@ -48,6 +52,7 @@ static void boot(void){
 void setUp(void){
     fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4);
     now=0; nv_valid=false; nv_saves=0; hbv=0;
+    mode_valid=false;mode_nv=0;mode_saves=0;
     g.high_pct[HTR_WIRING_3W]=100; fake_ctx[0].probe_answer=HTR_PROBE_FOUND;
 }
 void tearDown(void){}
@@ -157,7 +162,8 @@ void test_start_needs_a_live_heartbeat(void){
     TEST_ASSERT_EQUAL_UINT8(HTR_RES_NO_HOST, rd8(HTR_R_CMD_RESULT));
     uint16_t f = rd16(HTR_R_FLAGS);
     TEST_ASSERT_TRUE(f & HTR_F_START_REFUSED); TEST_ASSERT_FALSE(f & HTR_F_HOST_LIVE);
-    start_keyed();                                            /* heartbeat + key in one go */
+    TEST_ASSERT_FALSE(f & HTR_F_START_ARMED);                 /* a refusal disarms */
+    arm(); start_keyed();                                     /* re-arm, then heartbeat + key */
     TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
     f = rd16(HTR_R_FLAGS);
     TEST_ASSERT_TRUE(f & HTR_F_HOST_LIVE); TEST_ASSERT_FALSE(f & HTR_F_START_REFUSED);
@@ -213,8 +219,55 @@ void test_host_timeout_stop_needs_a_fresh_request(void){
     TEST_ASSERT_EQUAL_UINT8(HTR_RES_NOT_ARMED, rd8(HTR_R_CMD_RESULT));
     TEST_ASSERT_TRUE(rd16(HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP);
     arm(); loop_to(now + 20u);                                /* host acknowledges with a stop */
-    TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP);
+    TEST_ASSERT_TRUE(rd16(HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP);  /* still visible afterwards */
     start_keyed();
+    TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
+    TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_HOST_TIMEOUT_STOP); /* the accepted start clears it */
+}
+/* A keyed start is accepted only while the heater is idle (phase OFF). One
+   that lands while it is stopping or cooling down is refused, never held:
+   held, it would restart the heater minutes later when cooldown reached
+   standby (a stale or replayed ON from the host). */
+void test_start_is_refused_until_the_heater_is_idle(void){
+    boot(); loop_to(7000); live_armed(); start_keyed();
+    fake_ctx[0].hint = HTR_HINT_RUNNING; loop_hb_to(now + 1000u);
+    arm(); loop_hb_to(now + 100u);                            /* host stop */
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].stops);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_STOP_REQUESTED, rd8(HTR_R_PHASE));
+    start_keyed();
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_EQUAL_HEX8(0, rd8(HTR_R_RUN_REQUEST));
+    TEST_ASSERT_TRUE(rd16(HTR_R_FLAGS) & HTR_F_START_REFUSED);
+    fake_ctx[0].hint = HTR_HINT_COOLDOWN; loop_hb_to(now + 500u);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_COOLDOWN, rd8(HTR_R_PHASE));
+    arm(); start_keyed();
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_EQUAL_HEX8(0, rd8(HTR_R_RUN_REQUEST));
+    TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_START_ARMED); /* a refusal disarms... */
+    arm(); loop_hb_to(now + 100u);                            /* ...the host's RUN 0 re-arms */
+    start_keyed();                                            /* second tap: refused again */
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, rd8(HTR_R_CMD_RESULT));
+    settle_off();
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, rd8(HTR_R_PHASE));
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);                /* nothing restarted at standby */
+    arm(); start_keyed();                                     /* the user's next ON */
+    TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_OK, rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_START_REFUSED);
+}
+/* Same in FAULT: a start re-armed by the host's stop is refused, not held
+   until a CLEAR_FAULT sends the FSM back to OFF. */
+void test_start_is_refused_in_fault_and_not_held_for_the_clear(void){
+    boot(); loop_to(7000); live_armed(); start_keyed();
+    fake_ctx[0].hint = HTR_HINT_FAULT; loop_hb_to(now + 500u);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_FAULT, rd8(HTR_R_PHASE));
+    arm(); start_keyed();
+    TEST_ASSERT_EQUAL_UINT8(HTR_RES_BUSY, rd8(HTR_R_CMD_RESULT));
+    fake_ctx[0].hint = HTR_HINT_OFF; loop_hb_to(now + 500u);
+    mwrite1(HTR_R_COMMAND, HTR_CMD_CLEAR_FAULT); loop_hb_to(now + 500u);
+    TEST_ASSERT_EQUAL_UINT8(HTR_PHASE_OFF, rd8(HTR_R_PHASE));
+    TEST_ASSERT_EQUAL(1u, fake_ctx[0].starts);
+    arm(); start_keyed();
     TEST_ASSERT_EQUAL(2u, fake_ctx[0].starts);
 }
 void test_host_timeout_setting_applies(void){
@@ -318,7 +371,70 @@ void test_status_block_reflects_driver_and_echo_fault_is_sticky(void){
     now += 3100; htr_regs_publish(now, 5);
     TEST_ASSERT_FALSE(rd16(HTR_R_FLAGS) & HTR_F_ECHO_FAULT);
 }
+static void boot_autoterm(void){
+    nv_valid=true;nv_type=2;nv_to=7;
+    g.high_pct[HTR_WIRING_3W]=0;g.high_pct[HTR_WIRING_4W]=100;
+    fake_ctx[1].probe_answer=HTR_PROBE_FOUND;
+    boot();loop_to(now+7000);
+    TEST_ASSERT_EQUAL(2,rd8(HTR_R_ACTIVE_TYPE));
+    TEST_ASSERT_BITS_HIGH(HTR_CAP_POWER_MODE,rd16(HTR_R_CAPS));
+}
+void test_mode_persistence_migrates_without_touching_legacy_word(void){
+    boot_autoterm();
+    TEST_ASSERT_EQUAL(0,rd8(HTR_R_CONTROL_MODE)); /* 0.2.3 record has no extension */
+    mwrite1(HTR_R_CONTROL_MODE,1);loop_to(now+20);
+    TEST_ASSERT_EQUAL(1,rd8(HTR_R_CONTROL_MODE));
+    TEST_ASSERT_EQUAL(1,mode_saves);TEST_ASSERT_EQUAL(0,nv_saves);
+    uint8_t old_type=0,old_timeout=0;
+    TEST_ASSERT_TRUE(nv.load(0,&old_type,&old_timeout)); /* downgrade sees same legacy record */
+    TEST_ASSERT_EQUAL(2,old_type);TEST_ASSERT_EQUAL(7,old_timeout);
+    boot();loop_to(now+7000);
+    TEST_ASSERT_EQUAL(1,rd8(HTR_R_CONTROL_MODE)); /* upgrade reads valid extension */
+    TEST_ASSERT_EQUAL(10,htr_regs_host_timeout_s()); /* seconds timeout remains unchanged */
+    mwrite1(HTR_R_CONTROL_MODE,2);loop_to(now+20);
+    TEST_ASSERT_EQUAL(HTR_RES_BAD_ARG,rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_EQUAL(1,rd8(HTR_R_CONTROL_MODE));TEST_ASSERT_EQUAL(1,mode_saves);
+    mode_nv=255;boot();loop_to(now+7000);
+    TEST_ASSERT_EQUAL(0,rd8(HTR_R_CONTROL_MODE));
+    TEST_ASSERT_EQUAL(2,nv_type);TEST_ASSERT_EQUAL(7,nv_to);
+}
+void test_mode_extension_codec_blank_corrupt_and_rollback(void){
+    TEST_ASSERT_EQUAL(0,htr_nv_mode_decode(0xFFFFFFFFu));
+    TEST_ASSERT_EQUAL(0,htr_nv_mode_decode(0));
+    TEST_ASSERT_EQUAL(0,htr_nv_mode_decode(htr_nv_mode_encode(2)));
+    TEST_ASSERT_EQUAL(0,htr_nv_mode_decode(htr_nv_mode_encode(1)^0x100u));
+    TEST_ASSERT_EQUAL(0,htr_nv_mode_decode(htr_nv_mode_encode(0)));
+    TEST_ASSERT_EQUAL(1,htr_nv_mode_decode(htr_nv_mode_encode(1)));
+}
+void test_vevor_rejects_power_mode_and_keeps_zero_readback(void){
+    boot();loop_to(7000);
+    TEST_ASSERT_FALSE(rd16(HTR_R_CAPS)&HTR_CAP_POWER_MODE);
+    mwrite1(HTR_R_CONTROL_MODE,1);loop_to(now+20);
+    TEST_ASSERT_EQUAL(HTR_RES_NOT_SUPPORTED,rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_EQUAL(0,rd8(HTR_R_CONTROL_MODE));TEST_ASSERT_EQUAL(0,mode_saves);
+    mwrite1(HTR_R_CONTROL_MODE,0);loop_to(now+20);
+    TEST_ASSERT_EQUAL(HTR_RES_OK,rd8(HTR_R_CMD_RESULT));
+}
+void test_mode_rechecks_support_after_type_change_in_same_poll(void){
+    boot_autoterm();
+    mwrite1(HTR_R_HEATER_TYPE,1);mwrite1(HTR_R_CONTROL_MODE,1);loop_to(now+20);
+    TEST_ASSERT_EQUAL(HTR_RES_NOT_SUPPORTED,rd8(HTR_R_CMD_RESULT));
+    TEST_ASSERT_EQUAL(0,rd8(HTR_R_CONTROL_MODE));TEST_ASSERT_EQUAL(0,mode_saves);
+}
+void test_old_host_control_block_leaves_temperature_mode(void){
+    boot_autoterm();
+    const uint8_t old[]={2,0,7,24,0xCE,0,10,1,0};
+    mwrite(HTR_R_HEATER_TYPE,old,sizeof old);loop_to(now+20);
+    TEST_ASSERT_EQUAL(0,rd8(HTR_R_CONTROL_MODE));
+    TEST_ASSERT_EQUAL(7,rd8(HTR_R_LEVEL));TEST_ASSERT_EQUAL(24,rd8(HTR_R_SETPOINT_C));
+    TEST_ASSERT_EQUAL(0,mode_saves);TEST_ASSERT_EQUAL(0,fake_ctx[1].starts);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_mode_persistence_migrates_without_touching_legacy_word);
+    RUN_TEST(test_mode_extension_codec_blank_corrupt_and_rollback);
+    RUN_TEST(test_vevor_rejects_power_mode_and_keeps_zero_readback);
+    RUN_TEST(test_old_host_control_block_leaves_temperature_mode);
+    RUN_TEST(test_mode_rechecks_support_after_type_change_in_same_poll);
     RUN_TEST(test_identity_block_and_defaults);
     RUN_TEST(test_read_is_one_consistent_snapshot);
     RUN_TEST(test_keyed_control_block_reaches_driver);
@@ -334,6 +450,8 @@ int main(void){ UNITY_BEGIN();
     RUN_TEST(test_reads_and_a_stuck_heartbeat_do_not_keep_the_host_live);
     RUN_TEST(test_changing_heartbeat_keeps_the_host_live);
     RUN_TEST(test_host_timeout_stop_needs_a_fresh_request);
+    RUN_TEST(test_start_is_refused_until_the_heater_is_idle);
+    RUN_TEST(test_start_is_refused_in_fault_and_not_held_for_the_clear);
     RUN_TEST(test_host_timeout_setting_applies);
     RUN_TEST(test_host_idle_counts_from_the_last_valid_heartbeat);
     RUN_TEST(test_commands);

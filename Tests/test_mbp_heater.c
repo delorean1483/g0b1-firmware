@@ -86,6 +86,7 @@ static void test_maintenance_refuses_request_and_command(void)
     heater_process(0U);
     heater_process(250U);
     mb_reg_bind(MB_L011_UPDATE_MODE, active_maintenance, NULL);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(MB_HEATER_CONTROL_MODE, 1U));
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(53U, 1U));
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(53U, 0U));
     TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE, mb_reg_write(75U, HTR_CMD_START));
@@ -127,8 +128,29 @@ static void test_l011_version_identified_and_forgotten(void)
     TEST_ASSERT_EQUAL_UINT16(0U, words[1]);
 }
 
+static void test_control_mode_capability_applied_readback_and_invalid_values(void)
+{
+    uint16_t mode=99;
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE,mb_reg_read(MB_HEATER_CONTROL_MODE,&mode));
+    TEST_ASSERT_EQUAL(0,mode);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE,mb_reg_write(MB_HEATER_CONTROL_MODE,1));
+    c.regs[HTR_R_ACTIVE_TYPE]=HTR_TYPE_AUTOTERM;
+    c.regs[HTR_R_CAPS+1]=(uint8_t)(HTR_CAP_POWER_MODE>>8);
+    for(uint32_t t=0;t<=500;t+=250){heater_note_cortex_traffic(t);heater_process(t);}
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE,mb_reg_write(MB_HEATER_CONTROL_MODE,2));
+    TEST_ASSERT_EQUAL_INT(MB_EXC_NONE,mb_reg_write(MB_HEATER_CONTROL_MODE,1));
+    mb_reg_read(MB_HEATER_CONTROL_MODE,&mode);TEST_ASSERT_EQUAL(0,mode);
+    for(uint32_t t=750;t<=1000;t+=250){heater_note_cortex_traffic(t);heater_process(t);}
+    mb_reg_read(MB_HEATER_CONTROL_MODE,&mode);TEST_ASSERT_EQUAL(1,mode);
+    TEST_ASSERT_EQUAL(0,c.keyed_writes);
+    c.regs[HTR_R_CAPS+1]=0;
+    heater_note_cortex_traffic(1250);heater_process(1250);
+    mb_reg_read(MB_HEATER_CONTROL_MODE,&mode);TEST_ASSERT_EQUAL(0,mode);
+    TEST_ASSERT_EQUAL_INT(MB_EXC_ILLEGAL_VALUE,mb_reg_write(MB_HEATER_CONTROL_MODE,0));
+}
 int main(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_control_mode_capability_applied_readback_and_invalid_values);
     RUN_TEST(test_l011_version_identified_and_forgotten);
     RUN_TEST(test_maintenance_refuses_request_and_command);
     RUN_TEST(test_write_request_and_level);

@@ -29,9 +29,12 @@
 #define HTR_R_HOST_HEARTBEAT  0x17u   /* host writes a changing value every poll */
 #define HTR_R_COMMAND         0x18u   /* WO */
 #define HTR_R_CMD_RESULT      0x19u   /* RO */
+#define HTR_R_CONTROL_MODE    0x1Au   /* RW, persisted: 0 temperature, 1 power; AUTOTERM only.
+                                      CAPS bit 8 (HTR_CAP_POWER_MODE) required for power. */
 
 /* Run control (map v2). Only a complete write transaction (ended by STOP,
-   no bus error, inside 0x10..0x18) is applied. The host is live while it
+   no bus error, inside 0x10..0x18 or at 0x1A) is applied. 0x19 stays RO.
+   The host is live while it
    writes a CHANGED heartbeat at least every HOST_TIMEOUT_S; reads don't count.
    RUN_REQUEST = HTR_RUN_KEY starts only while the host is live and the start
    is armed. A clean stop (RUN_REQUEST = 0 or STOP) arms; an accepted start,
@@ -42,7 +45,7 @@
 #define HTR_HOST_TIMEOUT_MAX_S 60u
 #define HTR_HOST_TIMEOUT_DEFAULT_S 10u
 #define HTR_CTRL_FIRST         HTR_R_HEATER_TYPE
-#define HTR_CTRL_END           (HTR_R_COMMAND + 1u)   /* writable: 0x10..0x18 */
+#define HTR_CTRL_END           (HTR_R_CONTROL_MODE + 1u) /* 0x19 remains read-only */
 
 #define HTR_CMD_START         1u   /* v2: NOT_SUPPORTED on the wire; use RUN_REQUEST */
 #define HTR_CMD_STOP          2u

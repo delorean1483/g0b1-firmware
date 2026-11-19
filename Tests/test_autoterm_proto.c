@@ -103,7 +103,25 @@ void test_capture_replay_timeline(void){
     TEST_ASSERT_EQUAL_INT(5, tl);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, timeline, 5);
 }
+void test_explicit_modes_preserve_temperature_and_power_endpoints(void){
+    uint8_t a[14], b[14];
+    for (int8_t sp=5; sp<=30; sp++) {
+        size_t n=AT_BuildStart(sp,a);
+        TEST_ASSERT_EQUAL(n, AT_BuildStartMode(2,sp,1,255,b));
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(a,b,n);
+        n=AT_BuildSettingsWrite(sp,a);
+        TEST_ASSERT_EQUAL(n, AT_BuildSettingsMode(2,sp,1,255,b));
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(a,b,n);
+    }
+    AT_BuildStartMode(4,30,1,0,b);
+    const uint8_t low[]={255,255,4,30,1,0,17};
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(low,b+5,7);
+    AT_BuildSettingsMode(4,30,1,9,b);
+    const uint8_t high[]={255,255,4,30,1,9};
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(high,b+5,6);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_explicit_modes_preserve_temperature_and_power_endpoints);
     RUN_TEST(test_builders_byte_exact_vs_captures);
     RUN_TEST(test_settings_write_shape);
     RUN_TEST(test_parser_version_reply_with_garbage_and_resync);

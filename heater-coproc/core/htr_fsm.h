@@ -49,4 +49,7 @@ uint8_t htr_fsm_clear_fault(uint32_t now);
 uint8_t htr_fsm_redetect(uint32_t now);
 uint8_t htr_fsm_reinit_iface(uint32_t now);
 void htr_fsm_view(uint32_t now, htr_fsm_view_t *out);
+/* Current phase (htr_phase_t), without building a whole view. */
+uint8_t htr_fsm_phase(void);
+bool htr_fsm_power_mode_supported(void);
 #endif

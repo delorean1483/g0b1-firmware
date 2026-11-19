@@ -49,7 +49,8 @@ void test_identity(void){
     TEST_ASSERT_EQUAL_UINT8(HTR_TYPE_AUTOTERM, d->type_id);
     TEST_ASSERT_EQUAL_UINT8(HTR_WIRING_4W, d->wiring);
     TEST_ASSERT_TRUE(d->caps & HTR_CAP_SETPOINT);
-    TEST_ASSERT_FALSE(d->caps & HTR_CAP_LEVEL);
+    TEST_ASSERT_TRUE(d->caps & HTR_CAP_LEVEL);
+    TEST_ASSERT_TRUE(d->caps & HTR_CAP_POWER_MODE);
 }
 void test_wake_sequence_bauds_counts_and_gaps(void){
     heater_alive = false;
@@ -93,7 +94,7 @@ void test_online_polls_status_settings_and_temp_only_when_known(void){
     size_t se = count_cmd(AT_CMD_SETTINGS, from);
     TEST_ASSERT_TRUE(se >= 3 && se <= 5);
     TEST_ASSERT_EQUAL(0, count_cmd(AT_CMD_TEMP, from));      /* ambient unknown */
-    htr_request_t rq = {0, 1, 20, 231};                     /* 23.1 C */
+    htr_request_t rq = {0, 1, 20, 231, 0};                     /* 23.1 C */
     d->apply(d->ctx, &rq); from = u.writes;
     run(t + 20000, t + 31000, false, NULL);
     size_t i = last_index_of(AT_CMD_TEMP);
@@ -102,7 +103,7 @@ void test_online_polls_status_settings_and_temp_only_when_known(void){
 }
 void test_start_sends_captured_frame_until_heater_leaves_standby(void){
     uint32_t t = go_online();
-    htr_request_t rq = {1, 1, 29, HTR_AMBIENT_UNKNOWN};
+    htr_request_t rq = {1, 1, 29, HTR_AMBIENT_UNKNOWN, 0};
     d->start(d->ctx, &rq); size_t from = u.writes;
     run(t, t + 3000, false, NULL);                          /* heater still in 0.1 */
     size_t n1 = count_cmd(AT_CMD_START, from);
@@ -130,7 +131,7 @@ void test_stop_repeats_until_cooldown_then_keeps_polling(void){
 }
 void test_setpoint_change_while_running_sends_settings_write(void){
     uint32_t t = go_online();
-    htr_request_t rq = {1, 1, 22, HTR_AMBIENT_UNKNOWN};
+    htr_request_t rq = {1, 1, 22, HTR_AMBIENT_UNKNOWN, 0};
     d->start(d->ctx, &rq); hs_major = 2; hs_minor = 4;
     run(t, t + 3000, false, NULL);
     rq.setpoint_c = 25; d->apply(d->ctx, &rq); size_t from = u.writes;
@@ -168,7 +169,63 @@ void test_stop_not_acked_by_standby_status_in_first_second(void){
     from = u.writes; run(t + 3000, t + 8000, false, NULL);
     TEST_ASSERT_EQUAL(0, count_cmd(AT_CMD_STOP, from));      /* acked once settled */
 }
+static size_t settings_writes(size_t from){
+    size_t n=0;
+    for(size_t i=from;i<u.writes;i++)
+        if(fake_uart_write_cmd(&u,i)==AT_CMD_SETTINGS && u.write_len[i]==13) n++;
+    return n;
+}
+static size_t last_settings_write(void){
+    size_t n=0;
+    for(size_t i=0;i<u.writes;i++)
+        if(fake_uart_write_cmd(&u,i)==AT_CMD_SETTINGS && u.write_len[i]==13) n=i;
+    return n;
+}
+void test_live_modes_change_settings_only_and_store_inactive_values(void){
+    uint32_t t=go_online();
+    htr_request_t rq={1,1,22,231,0};
+    d->start(d->ctx,&rq); hs_major=3; hs_minor=0;
+    run(t,t+3000,false,NULL); t+=3000;
+    size_t from=u.writes;
+    rq.level=10;d->apply(d->ctx,&rq);run(t,t+1000,false,NULL);t+=1000;
+    TEST_ASSERT_EQUAL(0,settings_writes(from));
+    rq.setpoint_c=25;from=u.writes;d->apply(d->ctx,&rq);run(t,t+1000,false,NULL);t+=1000;
+    TEST_ASSERT_EQUAL(1,settings_writes(from));
+    TEST_ASSERT_EQUAL(0,count_cmd(AT_CMD_START,from));
+    rq.control_mode=1;from=u.writes;d->apply(d->ctx,&rq);run(t,t+1000,false,NULL);t+=1000;
+    TEST_ASSERT_EQUAL(1,settings_writes(from));
+    size_t i=last_settings_write();
+    const uint8_t power[]={255,255,4,25,1,9};
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(power,u.tx+u.write_off[i]+5,6);
+    TEST_ASSERT_EQUAL(0,count_cmd(AT_CMD_START,from));
+    rq.setpoint_c=27;from=u.writes;d->apply(d->ctx,&rq);run(t,t+1000,false,NULL);t+=1000;
+    TEST_ASSERT_EQUAL(0,settings_writes(from));
+    rq.level=1;from=u.writes;d->apply(d->ctx,&rq);run(t,t+1000,false,NULL);t+=1000;
+    TEST_ASSERT_EQUAL(1,settings_writes(from));i=last_settings_write();
+    TEST_ASSERT_EQUAL_UINT8(0,u.tx[u.write_off[i]+10]);
+    from=u.writes;run(t,t+21000,false,NULL);t+=21000;
+    TEST_ASSERT_EQUAL(0,settings_writes(from));
+    TEST_ASSERT_EQUAL(2,count_cmd(AT_CMD_TEMP,from)); /* still every 10 s in power mode */
+    TEST_ASSERT_EQUAL(0,count_cmd(AT_CMD_START,from));
+    rq.control_mode=0;from=u.writes;d->apply(d->ctx,&rq);run(t,t+1000,false,NULL);
+    TEST_ASSERT_EQUAL(1,settings_writes(from));i=last_settings_write();
+    const uint8_t temp[]={255,255,2,27,1,255};
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(temp,u.tx+u.write_off[i]+5,6);
+    TEST_ASSERT_EQUAL(0,count_cmd(AT_CMD_START,from));
+}
+void test_power_start_uses_level_endpoints(void){
+    uint32_t t=go_online();htr_request_t rq={1,1,30,HTR_AMBIENT_UNKNOWN,1};
+    d->start(d->ctx,&rq);run(t,t+1000,false,NULL);
+    size_t i=last_index_of(AT_CMD_START);
+    const uint8_t low[]={255,255,4,30,1,0,17};
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(low,u.tx+u.write_off[i]+5,7);
+    rq.level=10;d->start(d->ctx,&rq);run(t+1000,t+2000,false,NULL);
+    i=last_index_of(AT_CMD_START);
+    TEST_ASSERT_EQUAL_UINT8(9,u.tx[u.write_off[i]+10]);
+}
 int main(void){ UNITY_BEGIN();
+    RUN_TEST(test_live_modes_change_settings_only_and_store_inactive_values);
+    RUN_TEST(test_power_start_uses_level_endpoints);
     RUN_TEST(test_stop_not_acked_by_standby_status_in_first_second);
 
     RUN_TEST(test_identity);

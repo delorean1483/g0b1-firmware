@@ -34,6 +34,8 @@ typedef struct {
     bool      stop_sent;       /* a stop frame has gone out since stop() */
     uint32_t  stop_first_tx;   /* when the first such stop went out */
     int8_t    setpoint_c;
+    uint8_t   level;
+    uint8_t   control_mode;
     int16_t   ambient_c_x10;
     /* last decoded status */
     bool      have_status;
@@ -75,6 +77,7 @@ static void a_init(void *ctx, const htr_uart_t *u, uint32_t now)
     c->u = u;
     c->ambient_c_x10 = HTR_AMBIENT_UNKNOWN;
     c->setpoint_c = 20;
+    c->level = 1u;
     c->link = AT_S_WAKE;
     c->step_tick = now - AT_WAKE_GAP_MS;
     c->last_tx = now - AT_WAKE_GAP_MS;
@@ -170,7 +173,8 @@ static void online_step(at_ctx_t *c, uint32_t now)
         if (c->start_tries >= AT_START_TRIES) {
             c->start_pending = false;          /* FSM start timeout will raise FAULT */
         } else {
-            tx(c, f, AT_BuildStart(c->setpoint_c, f), now);
+            tx(c, f, AT_BuildStartMode(c->control_mode ? 0x04u : 0x02u,
+                c->setpoint_c, 0x01u, c->control_mode ? (uint8_t)(c->level - 1u) : 0xFFu, f), now);
             c->start_tries++;
             c->last_cmd_tx = now;
             c->cmd_due = false;
@@ -178,7 +182,8 @@ static void online_step(at_ctx_t *c, uint32_t now)
         }
     }
     if (c->settings_dirty && c->want_run && !c->start_pending) {
-        tx(c, f, AT_BuildSettingsWrite(c->setpoint_c, f), now);
+        tx(c, f, AT_BuildSettingsMode(c->control_mode ? 0x04u : 0x02u,
+            c->setpoint_c, 0x01u, c->control_mode ? (uint8_t)(c->level - 1u) : 0xFFu, f), now);
         c->settings_dirty = false;
         return;
     }
@@ -212,10 +217,13 @@ static void a_process(void *ctx, uint32_t now)
 static void a_apply(void *ctx, const htr_request_t *rq)
 {
     at_ctx_t *c = (at_ctx_t *)ctx;
-    if (rq->setpoint_c != c->setpoint_c) {
-        c->setpoint_c = rq->setpoint_c;
-        c->settings_dirty = true;
-    }
+    uint8_t mode = rq->control_mode == HTR_MODE_POWER ? HTR_MODE_POWER : HTR_MODE_TEMPERATURE;
+    uint8_t level = rq->level < 1u ? 1u : (rq->level > 10u ? 10u : rq->level);
+    if (mode != c->control_mode || (mode == HTR_MODE_POWER ?
+        level != c->level : rq->setpoint_c != c->setpoint_c)) c->settings_dirty = true;
+    c->setpoint_c = rq->setpoint_c;
+    c->level = level;
+    c->control_mode = mode;
     c->ambient_c_x10 = rq->ambient_c_x10;
 }
 
@@ -276,7 +284,7 @@ static void a_status(const void *ctx, uint32_t now, htr_status_t *out)
 
 const htr_driver_t drv_autoterm = {
     HTR_TYPE_AUTOTERM, HTR_WIRING_4W,
-    HTR_CAP_SETPOINT | HTR_CAP_AMBIENT_IN | HTR_CAP_SUPPLY_V | HTR_CAP_EXCH_TEMP,
+    HTR_CAP_LEVEL | HTR_CAP_SETPOINT | HTR_CAP_AMBIENT_IN | HTR_CAP_SUPPLY_V | HTR_CAP_EXCH_TEMP | HTR_CAP_POWER_MODE,
     &s_ctx,
     a_init, a_process, a_start, a_stop, a_apply, a_probe, a_status
 };

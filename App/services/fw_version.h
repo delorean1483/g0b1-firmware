@@ -52,13 +52,14 @@
  * v1.2.8: Restore and verify the lamp immediately after a failed write.
  * v1.2.9: Reassert mode after enable and record wake/alignment reads.
  * v1.3.0: Stage lamp wake with outputs disabled before loading PWM.
- * v1.3.1: One 50 ms idle-bus retry after failed lamp write/restore. */
+ * v1.3.1: One 50 ms idle-bus retry after failed lamp write/restore.
+ * v1.3.17: AUTOTERM selectable temperature/power mode (L011 0.2.4). */
 #define G0B1_FW_VERSION_MAJOR 1u
 #define G0B1_FW_VERSION_MINOR 3u
 #ifdef RGB_BENCH_INJECTION
 #define G0B1_FW_VERSION_PATCH 3u /* Bench fault-injection image only. */
 #else
-#define G0B1_FW_VERSION_PATCH 16u
+#define G0B1_FW_VERSION_PATCH 17u
 #endif
 
 /* single-register encoding: major*10000 + minor*100 + patch  (max 6.55.35) */

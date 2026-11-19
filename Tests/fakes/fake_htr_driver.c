@@ -28,7 +28,7 @@ static void f_status(const void *ctx, uint32_t now, htr_status_t *out)
     out->any_rx = c->any_rx; out->last_rx_tick = c->last_rx; out->hint = c->hint;
 }
 #define FAKE(i, type, wiring) \
-    { type, wiring, (uint16_t)(1u << i), &fake_ctx[i], f_init, f_process, f_start, f_stop, f_apply, f_probe, f_status }
+    { type, wiring, (uint16_t)((1u << i) | ((i) == 1 ? HTR_CAP_POWER_MODE : 0u)), &fake_ctx[i], f_init, f_process, f_start, f_stop, f_apply, f_probe, f_status }
 const htr_driver_t fake_drv[3] = { FAKE(0, 1u, HTR_WIRING_3W), FAKE(1, 2u, HTR_WIRING_4W), FAKE(2, 3u, HTR_WIRING_3W) };
 
 void fake_drivers_reset(void)

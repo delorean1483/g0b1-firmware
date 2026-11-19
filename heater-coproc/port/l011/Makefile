@@ -12,18 +12,26 @@ OBJCOPY := $(CROSS)objcopy
 SZ      := $(CROSS)size
 
 BUILD  := build
+ifeq ($(LAYOUT),bootloader)
+BUILD := build-relocated
+LAYOUT_FLAGS := -Wl,--defsym=l011_bootloader_layout=1
+endif
+ifeq ($(LAYOUT),loader)
+BUILD := build-loader
+LAYOUT_FLAGS := -Wl,--defsym=l011_resident_loader=1
+endif
 OBJDIR := $(BUILD)/obj
 ROOT   := ../../..
 
 ARCH := -mcpu=cortex-m0plus -mthumb -mfloat-abi=soft
-DEFS := -DSTM32L011xx $(if $(DEBUG),-DDEBUG,)
+DEFS := -DSTM32L011xx $(if $(DEBUG),-DDEBUG,) $(if $(filter bootloader,$(LAYOUT)),-DL011_RELOCATED_APP,)
 INCS := -I. -I$(ROOT)/heater-common -I$(ROOT)/heater-coproc/core \
         -Ivendor/cmsis_device -I$(ROOT)/cube/Drivers/CMSIS/Include
 
 CFLAGS  := $(ARCH) $(DEFS) $(INCS) -std=gnu11 -Os -g3 -Wall -Wextra -Werror \
            -funsigned-char -ffunction-sections -fdata-sections
 ASFLAGS := $(ARCH) -x assembler-with-cpp -g3
-LDFLAGS := $(ARCH) -T l011.ld --specs=nano.specs --specs=nosys.specs -nostartfiles \
+LDFLAGS := $(ARCH) $(LAYOUT_FLAGS) -T l011.ld --specs=nano.specs --specs=nosys.specs -nostartfiles \
            -Wl,--gc-sections -Wl,-Map=$(BUILD)/heater-l011.map \
            -Wl,--print-memory-usage -Wl,--no-warn-rwx-segments
 
@@ -38,6 +46,10 @@ SRC_C := main.c port_sys.c port_gpio.c port_uart.c port_i2c_slave.c port_nv.c \
          $(ROOT)/heater-coproc/core/htr_fsm.c \
          $(ROOT)/heater-coproc/core/htr_regs.c
 SRC_S := vendor/cmsis_device/startup_stm32l011xx.s
+ifeq ($(LAYOUT),loader)
+SRC_C := loader.c loader_core.c port_sys.c port_gpio.c \
+         vendor/cmsis_device/system_stm32l0xx.c $(ROOT)/heater-common/crc16_modbus.c
+endif
 
 OBJS := $(addprefix $(OBJDIR)/,$(notdir $(SRC_C:.c=.o)) $(notdir $(SRC_S:.s=.o)))
 vpath %.c $(sort $(dir $(SRC_C)))

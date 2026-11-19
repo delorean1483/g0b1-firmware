@@ -2,16 +2,22 @@
 ENTRY(Reset_Handler)
 _estack = ORIGIN(RAM) + LENGTH(RAM);
 _Min_Stack_Size = 0x200;
+/* Reserve the first 4 KiB for the resident loader and the last 128-byte
+   flash page for its application manifest in the relocated build. */
+_app_offset = DEFINED(l011_bootloader_layout) ? 0x1000 : 0;
+_manifest_size = DEFINED(l011_bootloader_layout) ? 0x80 : 0;
+_loader_size = DEFINED(l011_resident_loader) ? 0x1000 : 16K;
+_retained_size = (DEFINED(l011_bootloader_layout) || DEFINED(l011_resident_loader)) ? 8 : 0;
 
 MEMORY
 {
-  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 16K
-  RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 2K
+  FLASH (rx)  : ORIGIN = 0x08000000 + _app_offset, LENGTH = _loader_size - _app_offset - _manifest_size
+  RAM   (xrw) : ORIGIN = 0x20000000 + _retained_size, LENGTH = 2K - _retained_size
 }
 
 SECTIONS
 {
-  .isr_vector : { . = ALIGN(4); KEEP(*(.isr_vector)) . = ALIGN(4); } > FLASH
+  .isr_vector : { . = ALIGN(4); __app_vectors = .; KEEP(*(.isr_vector)) . = ALIGN(4); } > FLASH
   .text : { . = ALIGN(4); *(.text) *(.text*) *(.glue_7) *(.glue_7t) *(.eh_frame)
             KEEP(*(.init)) KEEP(*(.fini)) . = ALIGN(4); _etext = .; } > FLASH
   .rodata : { . = ALIGN(4); *(.rodata) *(.rodata*) . = ALIGN(4); } > FLASH

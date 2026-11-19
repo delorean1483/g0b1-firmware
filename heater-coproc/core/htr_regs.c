@@ -33,6 +33,7 @@ static htr_request_t s_rq;
 static uint8_t s_type_setting;
 static uint8_t s_timeout_s;
 static uint8_t s_cmd_result;
+static bool s_power_cap;
 static uint32_t s_host_last;      /* last valid (changed) heartbeat */
 static bool s_hb_have;
 static uint8_t s_hb_last;
@@ -61,6 +62,7 @@ static void fill_control(uint8_t *m)
     m[HTR_R_HOST_HEARTBEAT] = s_hb_last;
     m[HTR_R_COMMAND] = 0u;
     m[HTR_R_CMD_RESULT] = s_cmd_result;
+    m[HTR_R_CONTROL_MODE] = s_power_cap ? s_rq.control_mode : HTR_MODE_TEMPERATURE;
 }
 
 uint8_t htr_regs_init(const htr_regs_cfg_t *cfg, uint32_t now)
@@ -79,6 +81,8 @@ uint8_t htr_regs_init(const htr_regs_cfg_t *cfg, uint32_t now)
     s_rq.level = 1u;
     s_rq.setpoint_c = 20;
     s_rq.ambient_c_x10 = HTR_AMBIENT_UNKNOWN;
+    s_rq.control_mode = HTR_MODE_TEMPERATURE;
+    s_power_cap = false;
     s_cmd_result = HTR_RES_OK;
     s_timeout_s = HTR_HOST_TIMEOUT_DEFAULT_S;
     s_host_last = now;
@@ -95,6 +99,11 @@ uint8_t htr_regs_init(const htr_regs_cfg_t *cfg, uint32_t now)
         if ((cfg->nv == NULL) || !cfg->nv->load(cfg->nv->ctx, &s_type_setting, &legacy_min)) {
             s_type_setting = HTR_NV_DEFAULT_TYPE;
         }
+    }
+    if (cfg->nv && cfg->nv->load_mode) {
+        uint8_t mode;
+        if (cfg->nv->load_mode(cfg->nv->ctx, &mode) && mode <= HTR_MODE_POWER)
+            s_rq.control_mode = mode;
     }
     s_live[HTR_R_DEVICE_ID] = HTR_DEVICE_ID;
     s_live[HTR_R_MAP_VERSION] = HTR_MAP_VERSION;
@@ -134,7 +143,7 @@ void htr_regs_i2c_rx(uint8_t byte)
 {
     if (!s_have_ptr) { s_ptr = byte; s_wr_first = byte; s_have_ptr = true; return; }
     if (s_wr_open && !s_wr_bad) {
-        if ((s_ptr < HTR_CTRL_FIRST) || (s_ptr >= HTR_CTRL_END)) {
+        if ((s_ptr < HTR_CTRL_FIRST) || (s_ptr >= HTR_CTRL_END) || s_ptr == HTR_R_CMD_RESULT) {
             s_wr_bad = true;
         } else {
             s_wr_buf[s_ptr - HTR_CTRL_FIRST] = byte;
@@ -191,15 +200,23 @@ static bool host_live(uint32_t now)
     return s_hb_have && ((uint32_t)(now - s_host_last) < (uint32_t)s_timeout_s * 1000u);
 }
 
-/* A stop the host asked for: always accepted, and it arms the next start. */
+/* A stop the host asked for: always accepted, and it arms the next start.
+   HOST_TIMEOUT_STOP survives it (cleared only by the next accepted start),
+   so a timeout stop stays visible after the host comes back. */
 static void clean_stop(void)
 {
     s_rq.run = 0u;
     s_armed = true;
     s_refused = false;
-    s_host_stop = false;
 }
 
+/* A keyed start is accepted only while the heater is idle (FSM phase OFF).
+   One that lands while it is stopping, cooling down, detecting or in FAULT
+   is refused BUSY and never held: held, it would restart the heater minutes
+   later when cooldown reached standby (a stale or replayed ON).
+   Every refusal also disarms. The G0B1 drops its request whenever START is
+   not armed, whatever the START_REFUSED edge (a second refusal in a row
+   raises none), and its RUN 0 re-arms for the user's next ON. */
 static void keyed_start(uint32_t now)
 {
     uint8_t res = HTR_RES_OK;
@@ -207,11 +224,13 @@ static void keyed_start(uint32_t now)
     if (s_type_setting == HTR_TYPE_NONE) res = HTR_RES_NO_TYPE;
     else if (!host_live(now)) res = HTR_RES_NO_HOST;
     else if (!s_armed) res = HTR_RES_NOT_ARMED;
+    else if (htr_fsm_phase() != HTR_PHASE_OFF) res = HTR_RES_BUSY;
     s_cmd_result = res;
-    if (res != HTR_RES_OK) { s_refused = true; return; }
+    if (res != HTR_RES_OK) { s_refused = true; s_armed = false; return; }
     s_rq.run = 1u;
     s_armed = false;
     s_refused = false;
+    s_host_stop = false;
 }
 
 static void run_command(uint8_t cmd, uint32_t now)
@@ -277,6 +296,18 @@ static void apply_writes(const uint8_t *st, const uint8_t *dt, bool stop_seen, u
         s_cmd_result = HTR_RES_BAD_ARG;             /* half an s16 is never applied */
     }
     if (dt[HTR_R_COMMAND]) run_command(st[HTR_R_COMMAND], now);
+    if (dt[HTR_R_CONTROL_MODE]) {
+        uint8_t mode = st[HTR_R_CONTROL_MODE];
+        if (mode > HTR_MODE_POWER) s_cmd_result = HTR_RES_BAD_ARG;
+        else if (mode == HTR_MODE_POWER && !htr_fsm_power_mode_supported()) s_cmd_result = HTR_RES_NOT_SUPPORTED;
+        else {
+            s_cmd_result = HTR_RES_OK;
+            if (mode != s_rq.control_mode) {
+                s_rq.control_mode = mode;
+                if (s_cfg.nv && s_cfg.nv->save_mode) s_cfg.nv->save_mode(s_cfg.nv->ctx, mode);
+            }
+        }
+    }
 }
 
 void htr_regs_poll(uint32_t now)
@@ -320,6 +351,7 @@ void htr_regs_publish(uint32_t now, uint32_t echo_errs)
     uint16_t discards;
 
     htr_fsm_view(now, &v);
+    s_power_cap = (v.caps & HTR_CAP_POWER_MODE) != 0u;
     if (s_rq.run && !v.rq.run) s_armed = false;   /* FAULT dropped run: not a host stop */
     s_rq.run = v.rq.run;                     /* FAULT forces run to 0: reflect it */
     if (echo_errs != s_prev_echo) { s_prev_echo = echo_errs; s_echo_tick = now; s_echo_seen = true; }

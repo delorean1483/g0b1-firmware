@@ -25,6 +25,12 @@ static modbus_exc_t wr_setpoint(uint16_t reg, uint16_t v) {
     return MB_EXC_NONE;
 }
 static modbus_exc_t rd_type_select(uint16_t reg, uint16_t *o) { (void)reg; *o = heater_get_type_select(); return MB_EXC_NONE; }
+static modbus_exc_t rd_control_mode(uint16_t reg, uint16_t *o) { (void)reg; *o = heater_get_control_mode(); return MB_EXC_NONE; }
+static modbus_exc_t wr_control_mode(uint16_t reg, uint16_t v) {
+    (void)reg;
+    return v <= 1U && !mb_l011_maintenance() && heater_set_control_mode((uint8_t)v) ?
+        MB_EXC_NONE : MB_EXC_ILLEGAL_VALUE;
+}
 static modbus_exc_t wr_type_select(uint16_t reg, uint16_t v) {
     (void)reg;
     if (v > 0xFFU) { return MB_EXC_ILLEGAL_VALUE; }   /* coprocessor validates the id */
@@ -113,6 +119,7 @@ void mbp_heater_register(void) {
     mb_reg_bind(73, rd_detect,            0);
     mb_reg_bind(74, rd_type_select,       wr_type_select);
     mb_reg_bind(75, rd_command,           wr_command);
+    mb_reg_bind(MB_HEATER_CONTROL_MODE, rd_control_mode, wr_control_mode);
     mb_reg_bind(MB_L011_FW_VERSION, rd_fw_version, 0);
     mb_reg_bind(MB_L011_FW_BUILD, rd_fw_build, 0);
 }

@@ -33,9 +33,10 @@ typedef enum {
 #define MB_L011_UPDATE_MODE 2132u
 #define MB_L011_UPDATE_LAST 2201u
 #define MB_L011_FW_VERSION 2227u
+#define MB_HEATER_CONTROL_MODE 2230u /* RW: 0 temperature, 1 power; requires HTR_CAP_POWER_MODE */
 #define MB_L011_FW_BUILD   2228u
 #define MB_L011_UPDATE_REJECT 2229u
-#define MB_REG_MAX     MB_L011_UPDATE_REJECT
+#define MB_REG_MAX     MB_HEATER_CONTROL_MODE
 #define MB_REG_LIMIT   (MB_REG_MAX + 1u)
 
 /* Diagnostics (FC 0x08) sub-functions. */

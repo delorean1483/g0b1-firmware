@@ -48,6 +48,9 @@ typedef enum { HTR_PROBE_BUSY = 0, HTR_PROBE_FOUND, HTR_PROBE_ABSENT } htr_probe
 #define HTR_CAP_SUPPLY_V    (1u << 5)
 #define HTR_CAP_EXCH_TEMP   (1u << 6)
 #define HTR_CAP_FAULT_CODE  (1u << 7)
+#define HTR_CAP_POWER_MODE  (1u << 8) /* AUTOTERM selectable temperature/power */
+#define HTR_MODE_TEMPERATURE 0u
+#define HTR_MODE_POWER       1u
 
 /* Field-valid bits (register VALID): a clear bit means "not decoded". */
 #define HTR_V_FAULT_CODE    (1u << 0)
@@ -66,6 +69,7 @@ typedef struct {
     uint8_t level;          /* 1..10, CAP_LEVEL drivers */
     int8_t  setpoint_c;     /* CAP_SETPOINT drivers */
     int16_t ambient_c_x10;  /* CAP_AMBIENT_IN drivers; HTR_AMBIENT_UNKNOWN if none */
+    uint8_t control_mode;   /* HTR_MODE_*, ignored by VEVOR */
 } htr_request_t;
 
 typedef struct {

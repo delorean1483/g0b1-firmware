@@ -68,6 +68,7 @@ static void begin_sense(uint32_t now)
 static void start_detection(uint32_t now, bool boot)
 {
     if (s_type_setting == HTR_TYPE_NONE) {
+        htr_iface_hold_power(false);
         htr_iface_disable();
         s_drv = NULL;
         s_det = DET_DONE;
@@ -78,6 +79,7 @@ static void start_detection(uint32_t now, bool boot)
     if (s_type_setting != HTR_TYPE_AUTO) {
         /* Forced type (bench override): no sensing, no probing. */
         s_drv = driver_for_type(s_type_setting);
+        htr_iface_hold_power(false);   /* forced: power follows the iface enable */
         htr_iface_disable();
         if (s_drv == NULL) {
             s_det = DET_DONE;
@@ -164,6 +166,9 @@ static void detect_step(uint32_t now)
                                      (b_hi ? HTR_LS_B_IDLE_HIGH : 0u) |
                                      (cls << HTR_LS_CLASS_SHIFT));
         }
+        /* +5V_HTR follows the 4-wire signature: on as soon as a 4-wire heater
+           is seen, held across retries, dropped when the signature goes away. */
+        htr_iface_hold_power(cls == HTR_LS_CLASS_4W);
         if (cls == HTR_LS_CLASS_NONE) { det_fail(HTR_DET_NO_HEATER, now); return; }
         /* Safety: the 4-wire push-pull driver only with the 4-wire signature;
            ambiguous lines get only the open-drain 3-wire probes. */
@@ -243,6 +248,11 @@ static void run_step(uint32_t now)
                mid-run, or a start processed after a no-op stop): stop it. */
             s_drv->stop(s_drv->ctx);
             set_phase(HTR_PHASE_STOP_REQUESTED, now);
+        } else if (h == HTR_HINT_COOLDOWN) {
+            /* Heater still cooling (coprocessor reset during cooldown, or a
+               fault cleared before standby): track it, so a start is refused
+               until standby instead of faulting on the cooldown report. */
+            set_phase(HTR_PHASE_COOLDOWN, now);
         } else if ((s_type_setting == HTR_TYPE_AUTO) &&
                    ((uint32_t)(now - s_stale_since) >= HTR_HOTSWAP_MS)) {
             begin_sense(now);                     /* hot-swap: only while OFF */
@@ -276,6 +286,13 @@ static void run_step(uint32_t now)
         return;
     case HTR_PHASE_COOLDOWN:
         if (h == HTR_HINT_OFF) { set_phase(HTR_PHASE_OFF, now); return; }
+        if ((h == HTR_HINT_STARTING) || (h == HTR_HINT_RUNNING)) {
+            /* Relit with nobody asking (a start it stored, or its own panel):
+               stop it now, not at the cooldown timeout. */
+            s_drv->stop(s_drv->ctx);
+            set_phase(HTR_PHASE_STOP_REQUESTED, now);
+            return;
+        }
         if ((uint32_t)(now - s_phase_tick) >= HTR_COOLDOWN_TIMEOUT_MS) enter_fault(now);
         return;
     default:  /* FAULT: keep talking, wait for CLEAR_FAULT; re-stop a heater still burning */
@@ -313,13 +330,20 @@ void htr_fsm_process(uint32_t now)
 void htr_fsm_set_request(const htr_request_t *rq)
 {
     bool live = (s_rq.level != rq->level) || (s_rq.setpoint_c != rq->setpoint_c) ||
-                (s_rq.ambient_c_x10 != rq->ambient_c_x10);
+                (s_rq.ambient_c_x10 != rq->ambient_c_x10) ||
+                (s_rq.control_mode != rq->control_mode);
     s_rq.level = rq->level;
     s_rq.setpoint_c = rq->setpoint_c;
     s_rq.ambient_c_x10 = rq->ambient_c_x10;
+    s_rq.control_mode = rq->control_mode;
     /* FAULT holds run at 0 until CLEAR_FAULT (no autonomous restart). */
     s_rq.run = (s_phase == HTR_PHASE_FAULT) ? 0u : (rq->run ? 1u : 0u);
     if (live && (s_drv != NULL) && (s_phase != HTR_PHASE_DETECTING)) s_drv->apply(s_drv->ctx, &s_rq);
+}
+
+bool htr_fsm_power_mode_supported(void)
+{
+    return s_drv && s_drv->type_id == HTR_TYPE_AUTOTERM && (s_drv->caps & HTR_CAP_POWER_MODE);
 }
 
 static bool idle_phase(void)
@@ -363,6 +387,8 @@ uint8_t htr_fsm_reinit_iface(uint32_t now)
 {
     return htr_fsm_redetect(now);   /* re-runs the interface bring-up + driver init */
 }
+
+uint8_t htr_fsm_phase(void) { return s_phase; }
 
 void htr_fsm_view(uint32_t now, htr_fsm_view_t *out)
 {
