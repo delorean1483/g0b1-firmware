@@ -13,7 +13,7 @@ static uint32_t now;
 
 static void tick_to(uint32_t t){ while((int32_t)(t - now) > 0){ htr_fsm_process(now); now += 10u; } htr_fsm_process(now); }
 static htr_fsm_view_t view(void){ htr_fsm_view_t v; htr_fsm_view(now,&v); return v; }
-static void req(uint8_t run){ htr_request_t r={run,5,22,HTR_AMBIENT_UNKNOWN}; htr_fsm_set_request(&r); }
+static void req(uint8_t run){ htr_request_t r={run,5,22,HTR_AMBIENT_UNKNOWN, 0}; htr_fsm_set_request(&r); }
 
 void setUp(void){
     fake_drivers_reset(); fake_gpio_init(&g); fake_uart_init(&u3); fake_uart_init(&u4);
@@ -155,7 +155,7 @@ void test_cooldown_timeout_faults_but_keeps_polling(void){
 void test_live_level_change_applies_to_driver(void){
     boot_found_3w(); req(1); tick_to(6100);
     unsigned a0 = fake_ctx[0].applies;
-    htr_request_t r={1,9,22,HTR_AMBIENT_UNKNOWN}; htr_fsm_set_request(&r);
+    htr_request_t r={1,9,22,HTR_AMBIENT_UNKNOWN, 0}; htr_fsm_set_request(&r);
     TEST_ASSERT_EQUAL(a0 + 1u, fake_ctx[0].applies); TEST_ASSERT_EQUAL_UINT8(9, fake_ctx[0].last_rq.level);
     htr_fsm_set_request(&r);                                /* idempotent rewrite */
     TEST_ASSERT_EQUAL(a0 + 1u, fake_ctx[0].applies);

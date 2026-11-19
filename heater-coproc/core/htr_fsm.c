@@ -330,13 +330,20 @@ void htr_fsm_process(uint32_t now)
 void htr_fsm_set_request(const htr_request_t *rq)
 {
     bool live = (s_rq.level != rq->level) || (s_rq.setpoint_c != rq->setpoint_c) ||
-                (s_rq.ambient_c_x10 != rq->ambient_c_x10);
+                (s_rq.ambient_c_x10 != rq->ambient_c_x10) ||
+                (s_rq.control_mode != rq->control_mode);
     s_rq.level = rq->level;
     s_rq.setpoint_c = rq->setpoint_c;
     s_rq.ambient_c_x10 = rq->ambient_c_x10;
+    s_rq.control_mode = rq->control_mode;
     /* FAULT holds run at 0 until CLEAR_FAULT (no autonomous restart). */
     s_rq.run = (s_phase == HTR_PHASE_FAULT) ? 0u : (rq->run ? 1u : 0u);
     if (live && (s_drv != NULL) && (s_phase != HTR_PHASE_DETECTING)) s_drv->apply(s_drv->ctx, &s_rq);
+}
+
+bool htr_fsm_power_mode_supported(void)
+{
+    return s_drv && s_drv->type_id == HTR_TYPE_AUTOTERM && (s_drv->caps & HTR_CAP_POWER_MODE);
 }
 
 static bool idle_phase(void)

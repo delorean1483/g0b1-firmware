@@ -1,5 +1,7 @@
-/* Settings in the L011 data EEPROM: one word = magic, type, timeout, check. */
+/* EEPROM +0: legacy magic/type/timeout/check, unchanged for rollback.
+   EEPROM +4: validated optional control-mode extension. */
 #include "port.h"
+#include "htr_nv_mode.h"
 #include "stm32l0xx.h"
 
 #define NV_ADDR  (DATA_EEPROM_BASE)
@@ -16,18 +18,33 @@ static bool nv_load(void *ctx, uint8_t *type, uint8_t *timeout)
     return true;
 }
 
+static void nv_write_word(uint32_t addr, uint32_t w)
+{
+    if (FLASH->PECR & FLASH_PECR_PELOCK) {
+        FLASH->PEKEYR = 0x89ABCDEFu;
+        FLASH->PEKEYR = 0x02030405u;
+    }
+    *(volatile uint32_t *)addr = w;          /* auto-erase + program, ~3.2 ms */
+    while (FLASH->SR & FLASH_SR_BSY) {}
+    FLASH->PECR |= FLASH_PECR_PELOCK;
+}
+
 static void nv_save(void *ctx, uint8_t type, uint8_t timeout)
 {
     uint32_t w = NV_MAGIC | ((uint32_t)type << 8) | ((uint32_t)timeout << 16) |
                  ((uint32_t)(uint8_t)(NV_MAGIC ^ type ^ timeout ^ 0xFFu) << 24);
     (void)ctx;
-    if (FLASH->PECR & FLASH_PECR_PELOCK) {
-        FLASH->PEKEYR = 0x89ABCDEFu;
-        FLASH->PEKEYR = 0x02030405u;
-    }
-    *(volatile uint32_t *)NV_ADDR = w;          /* auto-erase + program, ~3.2 ms */
-    while (FLASH->SR & FLASH_SR_BSY) {}
-    FLASH->PECR |= FLASH_PECR_PELOCK;
+    nv_write_word(NV_ADDR, w);
 }
-
-const htr_nv_t port_nv = { nv_load, nv_save, 0 };
+static bool nv_load_mode(void *ctx, uint8_t *mode)
+{
+    (void)ctx;
+    *mode = htr_nv_mode_decode(*(volatile const uint32_t *)(NV_ADDR + 4u));
+    return true;
+}
+static void nv_save_mode(void *ctx, uint8_t mode)
+{
+    (void)ctx;
+    nv_write_word(NV_ADDR + 4u, htr_nv_mode_encode(mode));
+}
+const htr_nv_t port_nv = { nv_load, nv_save, 0, nv_load_mode, nv_save_mode };
