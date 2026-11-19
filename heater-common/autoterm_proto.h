@@ -34,6 +34,10 @@ size_t AT_BuildFrame(uint8_t dir, uint8_t cmd, const uint8_t *payload,
 size_t AT_BuildSimple(uint8_t cmd, uint8_t out[AT_OVERHEAD]);   /* empty payload */
 size_t AT_BuildTemp(int8_t temp_c, uint8_t out[8]);
 size_t AT_BuildStart(int8_t setpoint_c, uint8_t out[14]);
+size_t AT_BuildStartMode(uint8_t source, int8_t setpoint_c, uint8_t wait,
+                         uint8_t power, uint8_t out[14]);
+size_t AT_BuildSettingsMode(uint8_t source, int8_t setpoint_c, uint8_t wait,
+                            uint8_t power, uint8_t out[13]);
 size_t AT_BuildSettingsWrite(int8_t setpoint_c, uint8_t out[13]);
 
 typedef struct {

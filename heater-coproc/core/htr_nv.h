@@ -9,6 +9,8 @@ typedef struct htr_nv {
     bool (*load)(void *ctx, uint8_t *type_setting, uint8_t *host_timeout_min); /* false = blank/corrupt */
     void (*save)(void *ctx, uint8_t type_setting, uint8_t host_timeout_min);
     void *ctx;
+    bool (*load_mode)(void *ctx, uint8_t *mode); /* absent/invalid extension -> temperature */
+    void (*save_mode)(void *ctx, uint8_t mode);  /* never changes legacy type/timeout word */
 } htr_nv_t;
 #define HTR_NV_DEFAULT_TYPE     0xFFu   /* HTR_TYPE_AUTO */
 #define HTR_NV_LEGACY_TIMEOUT_MIN 10u
